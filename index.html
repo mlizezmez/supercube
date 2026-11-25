@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Square Quest - an 8-bit platformer</title>
+<style>
+  /* The page is just a black background with the canvas centred in it. */
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  /* "pixelated" keeps the big scaled-up pixels crisp instead of blurry. */
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+</style>
+</head>
+<body>
+<canvas id="game" width="256" height="240"></canvas>
+
+<script>
+'use strict';
+/* =========================================================================
+   SQUARE QUEST  -  a tiny NES-style platformer in ONE file
+   -------------------------------------------------------------------------
+   CONTROLS
+     Arrow keys ..... move            Space / Z / Up ... jump (hold = higher)
+       (or WASD: press T on the title screen to swap; W / Space / Z jump)
+     X / Shift ...... run             Down + Jump ...... drop through thin platforms
+     Enter .......... confirm         Esc .............. back to map
+     D .............. debug overlay   M ................ mute
+       (in WASD mode D means "move right", so debug moves to F3 or the ` key)
+     C / F .......... change colour / face (title screen)
+     T .............. swap Arrows <-> WASD (title screen)
+     R .............. reset save (title screen)
+
+   FILE LAYOUT  (search for the "=====" banners)
+     1. CONSTANTS            numbers you can tweak: physics, colours, rules
+     2. HELPERS              tiny utilities, pixel font, sound, save data
+     3. INPUT HANDLER        keyboard -> "actions" like 'jump'
+     4. ASSET / TILE RENDERER  sprites drawn with code + the AUTO-TILER
+     5. LEVEL DATA           ASCII-art levels + the parser
+     6. PHYSICS & COLLISION  movement, wall edge-lock, enemies
+     7. GAME STATES          Title, World Map, Level, Tally
+     8. MAIN LOOP            fixed 60 fps update + draw
+   ========================================================================= */
+
+/* QUICK START - MAKING YOUR OWN GAME WITH THIS EMPTY ENGINE
+   This file ships with NO levels and NO world map. You build them in two places:
+     Section 5  ->  const LEVELS = [ ... ]   draw each stage as text art
+     Section 7  ->  const WORLDS = [ ... ]   place the stages on a scrolling map
+   Each section starts with a full step-by-step guide and a copy-paste example.
+   Until you add a world, the map screen just shows a "NO WORLDS YET" notice.
+   Typos (unknown ids, missing start/exit) are reported in the browser console (F12). */
+
+
+/* =========================================================================
+   1. CONSTANTS
+   ========================================================================= */
+
+const SCREEN_W = 256;          // NES resolution
+const SCREEN_H = 240;
+const TILE     = 16;           // every tile is 16x16 pixels
+const ROWS     = 15;           // 240 / 16 -> every level is 15 tiles tall
+const STEP_MS  = 1000 / 60;    // the game logic runs at 60 updates per second
+
+// Set to true to stretch the picture to a true 4:3 shape like an old CRT TV.
+// (false = perfectly square pixels at an integer scale, which is crispest.)
+const STRETCH_TO_4_3 = false;
+
+// Which movement keys the game starts with: 'arrows' or 'wasd'.
+// Players can swap any time on the title screen with T (the choice is remembered).
+const DEFAULT_CONTROLS = 'arrows';
+
+// ---- Level completion rules -------------------------------------------
+const CLEAR_PERCENT = 40;                 // need this % of coins to clear a level
+const STAR_STEPS    = [60, 80, 90];       // silver stars at these percentages
+                                          // (all three turn GOLD at 100%)
+
+// ---- The 16-colour palette (every colour in the game comes from here) ---
+const C = {
+    black:  '#0f0f1b', white:  '#fcfcfc', grey:   '#9c9ca8', dkgrey: '#44445a',
+    red:    '#d82800', orange: '#fc7448', yellow: '#fcd83c', gold:   '#e8a000',
+    green:  '#00a844', dkgreen:'#005830', brown:  '#a0663c', dkbrown:'#58341c',
+    sky:    '#5c94fc', blue:   '#0058f8', purple: '#7c44fc', cyan:   '#3cd8fc',
+    mist:   '#8fa3b8',   // desaturated sky
+    haze:   '#a9b8c6',   // paler, for distant hills
+    fog:    '#6f8398',   // darker low band
+};
+
+// ---- Physics (all values are "pixels per frame" at 60 fps) ---------------
+// Tweak these to change how the square feels! Bigger = stronger.
+const PHYS = {
+  WALK_ACCEL: 0.045,    // speed gained per frame when walking
+  RUN_ACCEL:  0.070,    // ...when holding the run button
+  MAX_WALK:   1.5,      // top walking speed
+  MAX_RUN:    2.5,      // top running speed
+  FRICTION:   0.06,     // slowing down when you let go (on the ground)
+  SKID:       0.14,     // braking when you push the OPPOSITE way
+  JUMP_VEL:   4.0,      // initial upward speed of a jump
+  JUMP_BONUS: 0.12,     // extra jump speed per px/frame of horizontal speed
+  GRAV_HELD:  0.125,    // gravity while rising AND holding jump (floaty, high)
+  GRAV_FALL:  0.4375,   // gravity otherwise (snappy)
+  MAX_FALL:   4.5,      // terminal velocity
+  COYOTE:     4,        // frames you can still jump after walking off a ledge
+  JUMP_BUFFER:5,        // frames a too-early jump press is remembered
+  STOMP_BOUNCE:      3.2,   // bounce after stomping an enemy
+  STOMP_BOUNCE_HELD: 4.6,   // ...while holding jump
+  EDGE_LOCK_FRAMES:  2      // length of the wall "edge lock" (see section 6)
+};
+
+// Player customisation: [body, shadow, highlight] colour sets
+const PLAYER_COLORS = [
+  [C.red,    C.dkbrown, C.orange], [C.cyan,   C.blue,    C.white],
+  [C.green,  C.dkgreen, C.yellow], [C.yellow, C.gold,    C.white],
+  [C.purple, C.blue,    C.cyan],   [C.orange, C.red,     C.yellow]
+];
+const FACE_COUNT = 4;
+
+
+/* =========================================================================
+   2. HELPERS: math, pixel font, sound, save data
+   ========================================================================= */
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const aabb  = (ax, ay, aw, ah, bx, by, bw, bh) =>
+  ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;   // box overlap test
+
+let canvas, ctx;   // the screen (filled in by init() at the bottom)
+
+// Make an off-screen canvas. We "bake" sprites onto these once, then stamp them.
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return { canvas: c, g: c.getContext('2d') };
+}
+
+// Draw a solid rectangle on the screen (coordinates are rounded to whole pixels).
+function rect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x), Math.round(y), w, h);
+}
+
+// ---- Tiny 3x5 pixel font -------------------------------------------------
+// Each glyph = 5 digits (one per row). Each digit is a 3-bit octal number:
+// 4 = left pixel, 2 = middle pixel, 1 = right pixel.  Example 'A' = 25755:
+//   2 -> .#.     5 -> #.#     7 -> ###     5 -> #.#     5 -> #.#
+const FONT = {
+  'A':'25755','B':'65656','C':'34443','D':'65556','E':'74647','F':'74644','G':'34553',
+  'H':'55755','I':'72227','J':'11152','K':'55655','L':'44447','M':'57755','N':'65555',
+  'O':'25552','P':'65644','Q':'25563','R':'65655','S':'34216','T':'72222','U':'55557',
+  'V':'55552','W':'55775','X':'55255','Y':'55222','Z':'71247',
+  '0':'75557','1':'26227','2':'61247','3':'61216','4':'55711','5':'74616','6':'34757',
+  '7':'71222','8':'75757','9':'75716',
+  '.':'00002',':':'02020','!':'22202','%':'51245','/':'11244','-':'00700','+':'02720',
+  "'":'22000','?':'61202',',':'00024','>':'42124','<':'12421',' ':'00000'
+};
+
+function textWidth(str, scale) { return str.length * 4 * scale - scale; }
+
+function drawGlyphs(str, x, y, color, scale) {
+  ctx.fillStyle = color;
+  for (let i = 0; i < str.length; i++) {
+    const glyph = FONT[str[i]];
+    if (!glyph) continue;
+    for (let r = 0; r < 5; r++) {
+      const bits = parseInt(glyph[r], 8);
+      for (let c = 0; c < 3; c++) {
+        if (bits & (4 >> c)) ctx.fillRect(x + i * 4 * scale + c * scale, y + r * scale, scale, scale);
+      }
+    }
+  }
+}
+
+// drawText('HELLO', x, y, colour, scale, 'left' | 'center' | 'right')
+function drawText(str, x, y, color = C.white, scale = 1, align = 'left', shadow = true) {
+  str = String(str).toUpperCase();
+  if (align === 'center') x -= Math.floor(textWidth(str, scale) / 2);
+  else if (align === 'right') x -= textWidth(str, scale);
+  x = Math.round(x); y = Math.round(y);
+  if (shadow) drawGlyphs(str, x + scale, y + scale, C.black, scale);
+  drawGlyphs(str, x, y, color, scale);
+}
+
+// ---- Sound effects (simple square-wave beeps, no audio files needed) -----
+const Sfx = {
+  ac: null, mute: false,
+  beep(freq, dur, type = 'square', slide = 0, vol = 0.05, delay = 0) {
+    if (this.mute) return;
+    try {
+      if (!this.ac) this.ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ac.state === 'suspended') this.ac.resume();
+      const t = this.ac.currentTime + delay;
+      const osc = this.ac.createOscillator(), gain = this.ac.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t);
+      if (slide) osc.frequency.linearRampToValueAtTime(freq + slide, t + dur);
+      gain.gain.setValueAtTime(vol, t);
+      gain.gain.linearRampToValueAtTime(0.0001, t + dur);
+      osc.connect(gain); gain.connect(this.ac.destination);
+      osc.start(t); osc.stop(t + dur);
+    } catch (e) { /* audio is optional - ignore errors */ }
+  },
+  jump()  { this.beep(260, 0.16, 'square', 320); },
+  coin()  { this.beep(988, 0.05); this.beep(1319, 0.18, 'square', 0, 0.05, 0.05); },
+  stomp() { this.beep(200, 0.1, 'square', -120); },
+  die()   { this.beep(440, 0.5, 'square', -400); },
+  tick()  { this.beep(660, 0.03, 'square', 0, 0.03); },
+  star()  { this.beep(784, 0.1); this.beep(1047, 0.1, 'square', 0, 0.05, 0.1); this.beep(1568, 0.2, 'square', 0, 0.05, 0.2); },
+  fail()  { this.beep(180, 0.3, 'sawtooth', -60); },
+  step()  { this.beep(520, 0.05, 'triangle'); }
+};
+
+// ---- Save data (progress is remembered with localStorage) ----------------
+const Save = {
+  cleared: {},     // { '1-1': true }
+  best:    {},     // { '1-1': 85 }   best coin percentage per level
+  secret:  {},     // { '1-2': true } levels cleared through their SECRET exit (%)
+  world: 0, node: 'w1start',
+  color: 0, face: 0,
+  controls: DEFAULT_CONTROLS,          // 'arrows' or 'wasd'
+  load() {
+    try {
+      const s = JSON.parse(localStorage.getItem('squareQuestSave') || 'null');
+      if (s) Object.assign(this, s);
+    } catch (e) { /* no storage available - fine */ }
+  },
+  store() {
+    try {
+      localStorage.setItem('squareQuestSave', JSON.stringify({
+        cleared: this.cleared, best: this.best, secret: this.secret, world: this.world,
+        node: this.node, color: this.color, face: this.face, controls: this.controls }));
+    } catch (e) { /* ignore */ }
+  },
+  reset() {
+    this.cleared = {}; this.best = {}; this.secret = {}; this.world = 0; this.node = 'w1start';
+    this.store();
+  }
+};
+
+// ---- Particles (little sparkles, dust and confetti) ----------------------
+function spawnBurst(list, x, y, color, count, speed, life = 24) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2, s = Math.random() * speed + speed * 0.3;
+    list.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 0.5, life, max: life, color });
+  }
+}
+function updateParticles(list) {
+  for (const p of list) { p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.life--; }
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].life <= 0) list.splice(i, 1);
+}
+function drawParticles(list, camX = 0) {
+  for (const p of list) rect(p.x - camX, p.y, 2, 2, p.color);
+}
+
+
+/* =========================================================================
+   3. INPUT HANDLER
+   -------------------------------------------------------------------------
+   The game never asks "is the Z key down?". It asks "is JUMP down?".
+   To change keys, edit COMMON_KEYS and CONTROL_SCHEMES below.
+     Input.down('jump')    -> true every frame the button is held
+     Input.pressed('jump') -> true only on the first frame it was pressed
+   ========================================================================= */
+
+// Keys that are the same whichever movement layout is active.
+const COMMON_KEYS = {
+  run:   ['KeyX', 'ShiftLeft', 'ShiftRight'],
+  start: ['Enter'],      back:  ['Escape'],
+  confirm: ['Space', 'KeyZ'],            // menus / world map "go" button (NOT Up/W)
+  color: ['KeyC'],       face:  ['KeyF'],
+  mute:  ['KeyM'],       reset: ['KeyR'],  controls: ['KeyT']
+};
+
+// The two movement layouts. Press T on the title screen to swap between them.
+// 'label' and 'debugLabel' are only used for the on-screen hint text.
+const CONTROL_SCHEMES = {
+  arrows: { label: 'ARROWS', debugLabel: 'D',
+            left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'], down: ['ArrowDown'],
+            jump: ['Space', 'KeyZ', 'ArrowUp'],
+            debug: ['KeyD', 'Backquote', 'F3'] },
+  wasd:   { label: 'WASD', debugLabel: 'F3',
+            left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'],
+            jump: ['Space', 'KeyZ', 'KeyW'],
+            debug: ['Backquote', 'F3'] }     // D is "move right" here, so debug needs another key
+};
+
+let KEYMAP = {};                                  // filled in by applyControls()
+let CONTROLS = CONTROL_SCHEMES[DEFAULT_CONTROLS]; // the layout currently in use
+
+// Switch layout: 'arrows' or 'wasd'. Unknown names fall back to the default.
+function applyControls(name) {
+  if (!CONTROL_SCHEMES[name]) name = DEFAULT_CONTROLS;
+  CONTROLS = CONTROL_SCHEMES[name];
+  KEYMAP = Object.assign({}, COMMON_KEYS);
+  for (const action of ['left', 'right', 'up', 'down', 'jump', 'debug']) KEYMAP[action] = CONTROLS[action];
+  Save.controls = name;
+}
+
+const Input = {
+  codes: new Set(),          // keys currently held
+  pressedNow: new Set(),     // actions pressed since the last update
+  init() {
+    window.addEventListener('keydown', e => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;       // keep browser shortcuts working
+      for (const action in KEYMAP) {
+        if (KEYMAP[action].includes(e.code)) {
+          e.preventDefault();
+          if (!e.repeat && !this.codes.has(e.code)) this.pressedNow.add(action);
+        }
+      }
+      this.codes.add(e.code);
+    });
+    window.addEventListener('keyup',  e => this.codes.delete(e.code));
+    window.addEventListener('blur',   () => this.codes.clear());
+  },
+  down(action)    { return KEYMAP[action].some(c => this.codes.has(c)); },
+  pressed(action) { return this.pressedNow.has(action); },
+  endFrame()      { this.pressedNow.clear(); }
+};
+
+
+/* =========================================================================
+   4. ASSET / TILE RENDERER
+   -------------------------------------------------------------------------
+   There are no image files. Every sprite is drawn with fillRect calls onto a
+   small off-screen canvas ("baked" once at start-up), then stamped on screen.
+   ========================================================================= */
+
+// ---- Visual themes: which colours each kind of level uses ----------------
+const THEMES = {
+    day:    { fill: C.brown,  speck: C.dkbrown, top: C.green,  topDark: C.dkgreen, edge: C.dkbrown,
+            brick: C.orange, brickLine: C.dkbrown, plank: C.orange, plankLight: C.yellow, plankDark: C.dkbrown },
+    cave:   { fill: C.dkgrey, speck: C.black,   top: C.purple, topDark: C.blue,    edge: C.black,
+            brick: C.grey,   brickLine: C.dkgrey,  plank: C.cyan,   plankLight: C.white,  plankDark: C.blue },
+    castle: { fill: C.dkgrey, speck: C.black,   top: C.grey,   topDark: C.dkgrey,  edge: C.black,
+            brick: C.brown,  brickLine: C.black,   plank: C.grey,   plankLight: C.white,  plankDark: C.dkgrey },
+    // 'sky': ground and platforms look like solid clouds against open sky
+    sky:    { fill: C.white,  speck: C.cyan,    top: C.white,  topDark: C.cyan,    edge: C.grey,
+            brick: C.yellow, brickLine: C.gold,    plank: C.white, plankLight: C.cyan,   plankDark: C.grey },
+    pine: { fill: C.brown, speck: C.grey,  top: C.darkgreen, topDark: C.grey,     edge: C.dkbrown,
+            brick: C.dkgreen, brickLine: C.dkbrown, plank: C.brown, plankLight: C.grey, plankDark: C.dkbrown },
+};
+
+const SHEETS = {};   // SHEETS.day.ground[mask], SHEETS.day.brick, ...
+
+// Bit flags used by the auto-tiler. "1" means "a solid neighbour is there".
+const N_UP = 1, N_RIGHT = 2, N_DOWN = 4, N_LEFT = 8;
+// Diagonal flags: set when a diagonal neighbour is MISSING between two solid neighbours
+const D_TL = 1, D_TR = 2, D_BR = 4, D_BL = 8;
+
+// Build one ground tile variant. `mask` says which sides have solid neighbours,
+// so a side WITHOUT a neighbour gets an edge (grass on top, dark outline, ...).
+function buildGroundTile(th, mask) {
+  const { canvas: cv, g } = makeCanvas(16, 16);
+  g.fillStyle = th.fill; g.fillRect(0, 0, 16, 16);
+  g.fillStyle = th.speck;                                   // dirt speckles
+  for (const [sx, sy] of [[3,8],[4,8],[10,11],[11,11],[12,7],[6,13],[1,12],[14,14]]) g.fillRect(sx, sy, 1, 1);
+
+  if (!(mask & N_UP)) {                                     // exposed top -> grass
+    g.fillStyle = th.top;     g.fillRect(0, 0, 16, 4);
+    g.fillStyle = th.topDark; g.fillRect(0, 4, 16, 1);
+    g.fillRect(2, 5, 2, 1); g.fillRect(7, 5, 3, 1); g.fillRect(12, 5, 2, 1);   // little hanging tufts
+  }
+  g.fillStyle = th.edge;
+  if (!(mask & N_LEFT))  g.fillRect(0, 0, 1, 16);           // exposed sides get a dark outline
+  if (!(mask & N_RIGHT)) g.fillRect(15, 0, 1, 16);
+  if (!(mask & N_DOWN))  g.fillRect(0, 15, 16, 1);
+  // round off the exposed outer corners by erasing the corner pixel
+  if (!(mask & N_UP)   && !(mask & N_LEFT))  g.clearRect(0, 0, 1, 1);
+  if (!(mask & N_UP)   && !(mask & N_RIGHT)) g.clearRect(15, 0, 1, 1);
+  if (!(mask & N_DOWN) && !(mask & N_LEFT))  g.clearRect(0, 15, 1, 1);
+  if (!(mask & N_DOWN) && !(mask & N_RIGHT)) g.clearRect(15, 15, 1, 1);
+  return cv;
+}
+
+function buildBrickTile(th) {
+  const { canvas: cv, g } = makeCanvas(16, 16);
+  g.fillStyle = th.brickLine; g.fillRect(0, 0, 16, 16);       // mortar
+  g.fillStyle = th.brick;
+  for (let r = 0; r < 4; r++) {
+    const segs = (r % 2 === 0) ? [[0, 7], [8, 7]] : [[0, 3], [4, 7], [12, 3]];
+    for (const [x, w] of segs) g.fillRect(x, r * 4, w, 3);
+  }
+  return cv;
+}
+
+// A thin one-way platform. idx bit0 = neighbour on the right, bit1 = neighbour on the left.
+function buildPlatformTile(th, idx) {
+  const { canvas: cv, g } = makeCanvas(16, 16);
+  g.fillStyle = th.plankLight; g.fillRect(0, 0, 16, 1);
+  g.fillStyle = th.plank;      g.fillRect(0, 1, 16, 4);
+  g.fillStyle = th.plankDark;  g.fillRect(0, 5, 16, 1);
+  for (const x of [3, 7, 11, 15]) g.fillRect(x, 1, 1, 4);   // wood grain
+  if (!(idx & 2)) { g.clearRect(0, 0, 1, 1); g.fillStyle = th.plankDark; g.fillRect(0, 1, 1, 5); }      // left cap
+  if (!(idx & 1)) { g.clearRect(15, 0, 1, 1); g.fillStyle = th.plankDark; g.fillRect(15, 1, 1, 5); }    // right cap
+  return cv;
+}
+
+function buildSpikeTile() {
+  const { canvas: cv, g } = makeCanvas(16, 16);
+  for (const cx of [4, 12]) {                                // two triangles per tile
+    for (let y = 6; y < 16; y++) {
+      const w = 1 + Math.floor((y - 6) * 7 / 9);
+      const x0 = cx - Math.floor(w / 2);
+      g.fillStyle = C.grey;  g.fillRect(x0, y, w, 1);
+      g.fillStyle = C.white; g.fillRect(x0, y, 1, 1);        // shiny left edge
+    }
+  }
+  g.fillStyle = C.dkgrey; g.fillRect(0, 15, 16, 1);
+  return cv;
+}
+
+// Spikes hanging from a ceiling = the normal spike tile flipped upside down.
+function buildCeilingSpikeTile() {
+  const { canvas: cv, g } = makeCanvas(16, 16);
+  g.translate(0, 16); g.scale(1, -1);
+  g.drawImage(buildSpikeTile(), 0, 0);
+  return cv;
+}
+
+function buildSheets() {
+  for (const name in THEMES) {
+    const th = THEMES[name];
+    SHEETS[name] = { ground: [], platform: [], brick: buildBrickTile(th), spikes: buildSpikeTile() };
+    for (let m = 0; m < 16; m++) SHEETS[name].ground.push(buildGroundTile(th, m));
+    for (let i = 0; i < 4; i++)  SHEETS[name].platform.push(buildPlatformTile(th, i));
+    SHEETS[name].ceilingSpikes = buildCeilingSpikeTile();
+  }
+}
+
+/* ---- THE AUTO-TILER ------------------------------------------------------
+   Level data only says "#" (ground). This function looks at the 4 neighbours
+   (up/right/down/left) and 4 diagonals of a tile and decides WHICH picture to
+   use: a grassy top, a left edge, an inside corner... 16 variants in total.
+
+   Returns { mask, diag }:
+     mask = 4 bits, one per side that HAS a ground neighbour
+     diag = 4 bits, set when two touching sides are solid but the diagonal
+            between them is empty (an "inside corner" notch)
+   Tiles outside the level count as solid, so the level edges look seamless. */
+function isGroundNeighbour(level, col, row) {
+  if (col < 0 || col >= level.w || row < 0 || row >= level.h) return true;
+  return level.grid[row][col] === '#';
+}
+function autoTileGround(level, col, row) {
+  const s = (c, r) => isGroundNeighbour(level, c, r);
+  const up = s(col, row - 1), right = s(col + 1, row), down = s(col, row + 1), left = s(col - 1, row);
+  const mask = (up ? N_UP : 0) | (right ? N_RIGHT : 0) | (down ? N_DOWN : 0) | (left ? N_LEFT : 0);
+  let diag = 0;
+  if (up   && left  && !s(col - 1, row - 1)) diag |= D_TL;
+  if (up   && right && !s(col + 1, row - 1)) diag |= D_TR;
+  if (down && right && !s(col + 1, row + 1)) diag |= D_BR;
+  if (down && left  && !s(col - 1, row + 1)) diag |= D_BL;
+  return { mask, diag };
+}
+// Same idea for one-way platforms: only left/right neighbours matter.
+function autoTilePlatform(level, col, row) {
+  const l = tileAt(level, col - 1, row) === '-', r = tileAt(level, col + 1, row) === '-';
+  return (r ? 1 : 0) | (l ? 2 : 0);
+}
+
+// ---- Character drawing -----------------------------------------------------
+// Draws the customisable square. sx/sy = squash & stretch factors (1 = normal).
+function drawPlayerSprite(x, y, w, h, colorIdx, faceIdx, facing, sx = 1, sy = 1) {
+  const [body, dark, light] = PLAYER_COLORS[colorIdx % PLAYER_COLORS.length];
+  const bw = Math.round(w * sx), bh = Math.round(h * sy);
+  const bx = Math.round(x + (w - bw) / 2), by = Math.round(y + h - bh);
+  rect(bx, by, bw, bh, C.black);                             // outline
+  rect(bx + 1, by + 1, bw - 2, bh - 2, body);                // body
+  rect(bx + 1, by + bh - 3, bw - 2, 2, dark);                // shadow along the bottom
+  rect(bx + 2, by + 2, 3, 1, light); rect(bx + 2, by + 2, 1, 3, light);   // shiny corner
+  const off = facing >= 0 ? 1 : -1;                          // eyes look where we walk
+  const p = facing >= 0 ? 1 : 0;                             // pupil side
+  const ey = by + Math.round(bh * 0.3);
+  switch (faceIdx % FACE_COUNT) {
+    case 0:  // two friendly eyes
+      rect(bx + 2 + off, ey, 3, 4, C.white); rect(bx + 8 + off, ey, 3, 4, C.white);
+      rect(bx + 2 + off + p, ey + 1, 2, 2, C.black); rect(bx + 8 + off + p, ey + 1, 2, 2, C.black);
+      break;
+    case 1:  // one big cyclops eye
+      rect(bx + 4 + off, ey - 1, 6, 6, C.white);
+      rect(bx + 5 + off + p, ey + 1, 3, 3, C.black);
+      break;
+    case 2:  // cool visor
+      rect(bx + 1, ey, bw - 2, 4, C.black);
+      rect(bx + (facing >= 0 ? bw - 6 : 3), ey + 1, 2, 2, C.cyan);
+      rect(bx + (facing >= 0 ? bw - 10 : 7), ey + 1, 2, 2, C.cyan);
+      break;
+    default: // grumpy eyebrows
+      rect(bx + 2 + off, ey + 1, 3, 3, C.white); rect(bx + 8 + off, ey + 1, 3, 3, C.white);
+      rect(bx + 2 + off + p, ey + 2, 2, 2, C.black); rect(bx + 8 + off + p, ey + 2, 2, 2, C.black);
+      rect(bx + 2 + off, ey - 1, 4, 1, C.black); rect(bx + 7 + off, ey - 1, 4, 1, C.black);
+  }
+}
+
+// A simple walking blob enemy (14x14)
+function drawEnemySprite(e, camX) {
+  const x = Math.round(e.x - camX), y = Math.round(e.y);
+  if (!e.alive) { rect(x, y + 10, 14, 4, C.purple); rect(x + 2, y + 11, 3, 1, C.white); rect(x + 9, y + 11, 3, 1, C.white); return; }
+  const step = Math.floor(Game.tick / 8) % 2;
+  rect(x + 1, y, 12, 1, C.black); rect(x, y + 1, 14, 9, C.black);
+  rect(x + 1, y + 1, 12, 8, C.purple);
+  rect(x + 2, y + 2, 3, 1, C.cyan);                          // shine
+  rect(x + 3, y + 4, 3, 3, C.white); rect(x + 8, y + 4, 3, 3, C.white);
+  const look = e.vx > 0 ? 1 : 0;
+  rect(x + 3 + look, y + 5, 2, 2, C.black); rect(x + 8 + look, y + 5, 2, 2, C.black);
+  rect(x + 3, y + 3, 4, 1, C.black); rect(x + 7, y + 3, 4, 1, C.black);   // angry brows
+  rect(x + (step ? 0 : 2), y + 10, 5, 4, C.dkgrey);          // two shuffling feet
+  rect(x + (step ? 9 : 7), y + 10, 5, 4, C.dkgrey);
+}
+
+// A spinning coin, centred at (cx, cy)
+function drawCoinSprite(cx, cy, phase) {
+  const f = Math.floor(Game.tick / 8 + phase) % 4;
+  const ow = [8, 6, 4, 6][f];
+  cy += Math.round(Math.sin((Game.tick + phase * 13) / 12) * 1.5);
+  rect(cx - ow / 2, cy - 5, ow, 10, C.gold);
+  rect(cx - ow / 2 + 1, cy - 4, ow - 2, 8, C.yellow);
+  if (ow >= 6) rect(cx - ow / 2 + 2, cy - 3, 1, 3, C.white);
+}
+
+// A 9x9 pixel star. kind: 0 = empty, 1 = silver, 2 = gold.
+const STAR_ART = ['....#....','....#....','...###...','#########','.#######.','..#####..','..##.##..','.##...##.','.#.....#.'];
+function drawStar(x, y, kind, scale = 1) {
+  const top = kind === 2 ? C.yellow : kind === 1 ? C.white : C.dkgrey;
+  const bot = kind === 2 ? C.gold   : kind === 1 ? C.grey  : C.dkgrey;
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+    if (STAR_ART[r][c] === '#') {
+      rect(x + c * scale + scale, y + r * scale + scale, scale, scale, C.black);     // drop shadow
+    }
+  }
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+    if (STAR_ART[r][c] === '#') rect(x + c * scale, y + r * scale, scale, scale, r < 5 ? top : bot);
+  }
+}
+const starKind = (pct, i) => pct >= 100 ? 2 : (pct >= STAR_STEPS[i] ? 1 : 0);
+
+// A 16x32 gate. kind 'entry' (wooden door), 'exit' (blue portal) or 'secret' (purple % portal).
+// (x, y) = bottom-left corner of the gate. state: 'closed' | 'open' | 'red' | 'gold'
+function drawGate(x, y, kind, state) {
+  x = Math.round(x); y = Math.round(y);
+  const top = y - 32;
+  let door = kind === 'entry' ? C.dkbrown : kind === 'secret' ? C.purple : C.blue;
+  if (state === 'open') door = C.black;
+  if (state === 'gold') door = (Game.tick >> 2) & 1 ? C.yellow : C.white;
+  if (state === 'red')  door = (Game.tick >> 2) & 1 ? C.red : C.white;       // the failure flash!
+  rect(x + 3, top + 4, 10, 28, door);
+  if (kind === 'entry' && state !== 'open') { rect(x + 8, top + 4, 1, 28, C.black); rect(x + 10, top + 18, 2, 2, C.yellow); }
+  if (kind === 'exit' && state === 'closed') drawGlyphs('>', x + 6, top + 14, C.white, 1);
+  if (kind === 'secret' && state === 'closed') {
+    drawGlyphs('%', x + 6, top + 14, C.white, 1);
+    if ((Game.tick >> 3) % 2) rect(x + 7, top - 4, 2, 2, C.cyan);              // a little twinkle: "something's special here"
+  }
+  rect(x, top + 2, 3, 30, C.grey);  rect(x + 13, top + 2, 3, 30, C.grey);    // stone pillars
+  rect(x, top + 2, 1, 30, C.white); rect(x + 13, top + 2, 1, 30, C.white);
+  rect(x + 2, top + 2, 1, 30, C.dkgrey); rect(x + 15, top + 2, 1, 30, C.dkgrey);
+  rect(x - 1, top, 18, 4, C.grey); rect(x - 1, top, 18, 1, C.white); rect(x - 1, top + 3, 18, 1, C.dkgrey);
+}
+
+// ---- Backgrounds ---------------------------------------------------------
+function drawHill(cx, baseY, rx, h, color) {
+  for (let dy = 0; dy < h; dy++) {                              // draw the hill one pixel row at a time
+    const u = (dy + 1) / h;
+    const hw = Math.round(rx * Math.sqrt(1 - (1 - u) * (1 - u)));
+    rect(cx - hw, baseY - h + dy, hw * 2, 1, color);
+  }
+}
+function drawHillLayer(offset, baseY, color, rx, h, spacing) {
+  const start = -(Math.floor(offset) % spacing) - spacing;
+  for (let x0 = start; x0 < SCREEN_W + rx; x0 += spacing) drawHill(x0 + rx, baseY, rx, h, color);
+}
+function drawCloud(x, y, color = C.white, shade = C.cyan) {
+  rect(x + 8, y, 12, 4, color); rect(x + 4, y + 4, 24, 4, color);
+  rect(x, y + 8, 32, 4, color);  rect(x + 2, y + 12, 28, 1, shade);
+}
+
+// Sky scene helpers. A colour band that starts at y, with a chunky NES-style dithered top edge.
+function skyBand(y, color) {
+  for (let r = 0; r < 8; r += 2) for (let x = r % 4; x < SCREEN_W; x += 4) rect(x, y + r, 2, 2, color);
+  rect(0, y + 8, SCREEN_W, SCREEN_H - y - 8, color);
+}
+// Three layers of clouds (far, middle, near). par = how much they follow the camera,
+// drift = how fast they float by on their own, wrap = distance before a cloud repeats,
+// n = how many clouds, y0/span = vertical range.
+const CLOUD_LAYERS = [
+  { par: 0.12, drift: 0.03, wrap: 480, n: 8, y0: 16, span: 110, color: C.cyan,  shade: C.sky  },
+  { par: 0.30, drift: 0.06, wrap: 420, n: 6, y0: 30, span: 150, color: C.white, shade: C.cyan },
+  { par: 0.55, drift: 0.10, wrap: 560, n: 5, y0: 40, span: 160, color: C.white, shade: C.cyan }
+];
+
+// ---- Pine trees (for the 'pine' background) ----------------------------------
+// One pixel-art pine: a trunk plus 4 stacked triangles. (x, baseY) = bottom centre of the trunk.
+// leaf = main colour, shade = darker colour for the right-hand half, trunk = trunk colour.
+function drawPine(x, baseY, leaf, shade, trunk) {
+  x = Math.round(x);
+  rect(x - 2, baseY - 4, 4, 4, trunk);
+  for (let t = 0; t < 5; t++) {                       // t = 0 is the bottom (widest) tier
+    const bottom = baseY - 4 - t * 8;
+    const maxHalf = 14 - t * 2;                       // half-width of this tier at its base
+    for (let r = 0; r < 10; r++) {                    // draw the tier one pixel row at a time
+      const half = Math.max(1, Math.round(maxHalf * (1 - r / 10)));
+      rect(x - half, bottom - r - 1, half * 2, 1, leaf);
+      rect(x, bottom - r - 1, half, 1, shade);
+    }
+  }
+}
+
+// A scrolling row of SPARSE pines. par = parallax (smaller = further away, moves slower),
+// spacing = pixels between tree slots (bigger = fewer trees). Some slots are skipped on purpose.
+function drawPineLayer(camX, par, spacing, baseY, leaf, shade, trunk) {
+  const scroll = camX * par;
+  const first = Math.floor(scroll / spacing) - 1;
+  for (let i = first; i < first + Math.ceil(SCREEN_W / spacing) + 3; i++) {
+    if ((((i * 7) % 5) + 5) % 5 === 0) continue;                // skip about 1 slot in 5
+    const jitter = (((i * 37) % 23) + 23) % 23;                 // nudge each tree so they are not evenly spaced
+    drawPine(i * spacing + jitter - scroll, baseY, leaf, shade, trunk);
+  }
+}
+
+function drawBackground(theme, camX) {
+  if (theme === 'day') {
+    rect(0, 0, SCREEN_W, SCREEN_H, C.sky);
+    for (const [cx, cy] of [[20, 28], [120, 48], [200, 20], [290, 52], [350, 30]]) {
+      drawCloud(((cx - camX * 0.3) % 400 + 400) % 400 - 60, cy);
+    }
+    drawHillLayer(camX * 0.25, 208, C.cyan,    80, 48, 200);   // far hills move slowly = depth
+    drawHillLayer(camX * 0.5,  208, C.dkgreen, 56, 32, 140);   // near hills move faster
+  } else if (theme === 'pine') {
+    rect(0, 0, SCREEN_W, SCREEN_H, C.mist);
+    skyBand(150, C.fog);                    // optional: darker band toward the ground
+    for (const [cx, cy] of [[20, 28], [120, 48], [200, 20], [290, 52], [350, 30]]) {
+      drawCloud(((cx - camX * 0.3) % 400 + 400) % 400 - 60, cy);
+    }
+    drawPineLayer(camX, 0.30, 100, 210, C.dkgreen, C.black,   C.dkbrown);   // far trees
+    drawPineLayer(camX, 0.55, 150, 214, C.green,   C.dkgreen, C.brown);     // near trees
+  } else if (theme === 'sky') {
+    // Open sky: three bands of blue and drifting clouds. No hills at all.
+    rect(0, 0, SCREEN_W, SCREEN_H, C.blue);
+    skyBand(56, C.sky);
+    skyBand(150, C.cyan);
+    CLOUD_LAYERS.forEach((L, li) => {
+      for (let i = 0; i < L.n; i++) {
+        const base = i * L.wrap / L.n + (i * 53 + li * 17) % 41;                       // spread them out, a bit uneven
+        const x = (((base - camX * L.par - Game.tick * L.drift) % L.wrap) + L.wrap) % L.wrap - 60;
+        drawCloud(Math.round(x), L.y0 + (i * 71 + li * 29) % L.span, L.color, L.shade);
+      }
+    });
+  } else if (theme === 'cave') {
+    rect(0, 0, SCREEN_W, SCREEN_H, C.black);
+    const k = Math.floor(camX * 0.5 / 44);
+    for (let i = 0; i < 8; i++) {                                // stalactites
+      const idx = i + k, x = idx * 44 - camX * 0.5, h = 16 + ((idx * 53) % 28 + 28) % 28;
+      for (let dy = 0; dy < h; dy++) rect(x - Math.round(9 * (1 - dy / h)), 32 + dy, Math.round(9 * (1 - dy / h)) * 2, 1, C.dkgrey);
+    }
+    for (let i = 0; i < 16; i++) {                               // twinkling crystals
+      const px = (((i * 97 + 13) % 380) - camX * 0.6) % 380, py = 50 + (i * 57) % 150;
+      if (((Game.tick >> 4) + i) % 3 !== 0) rect(((px % 380) + 380) % 380 - 60, py, 2, 2, i % 2 ? C.cyan : C.purple);
+    }
+  } else {
+    rect(0, 0, SCREEN_W, SCREEN_H, C.black);                     // castle: brick wall + lava
+    for (let r = 0; r < 13; r++) {
+      const y = 32 + r * 16;
+      rect(0, y, SCREEN_W, 1, C.dkgrey);
+      const xo = (((r % 2) * 16 - camX * 0.5) % 32 + 32) % 32;
+      for (let x = xo - 32; x < SCREEN_W; x += 32) rect(x, y, 1, 16, C.dkgrey);
+    }
+    rect(0, 224, SCREEN_W, 16, C.red);
+    for (let x = -8; x < SCREEN_W; x += 8) rect(x + ((Game.tick >> 3) % 8), 224, 4, 2, C.orange);
+  }
+}
+
+
+/* =========================================================================
+   5. LEVEL DATA  -  HOW TO MAKE A LEVEL FROM SCRATCH
+   -------------------------------------------------------------------------
+   A level is one object in the LEVELS list below:
+
+     { id: '1-1', name: 'GREEN MEADOW', theme: 'day', rows: [ "....", "...." ] }
+
+     id     unique text label. Shown in the HUD; a map node points at it
+            (a node says  level: '1-1').
+     name   shown when the level starts and on the map. Use CAPITALS, 0-9 and
+            the symbols  . : ! % / - + ' ? , > <  (all the pixel font has).
+     theme  'day' (grass + hills), 'cave' (purple + crystals), 'castle' (stone + lava)
+            or 'sky' (open sky with clouds only - ground and platforms look like clouds).
+            An unknown theme name falls back to 'day' and warns in the console.
+     rows   the level itself: one text string per tile row, like a picture.
+
+   STEP BY STEP
+     1. Pick a width. Rows can be as long as you like (at least 16 tiles,
+        64-200 is typical). Short rows are padded with '.' on the right.
+     2. A level is 15 rows tall (one screen). If you write fewer rows, the
+        missing ones are added at the TOP - so you only need to write the
+        interesting bottom part (the last 6 rows is enough for a flat level).
+     3. Draw the floor with '#'. The auto-tiler adds grass, edges and corners
+        for you, so never draw those by hand. Leave gaps in the floor for
+        pits (falling out of the bottom = death).
+     4. Place exactly ONE 'S' (start) and ONE 'E' (exit). Each marks the BOTTOM
+        of its door, so put it in the row directly above the floor it stands on,
+        and keep the 2 tiles above it empty (doors are 2 tiles tall).
+     5. Add 'e' enemies and '^' spikes the same way - on the row just above the
+        floor. Scatter 'o' coins anywhere (high ones make players jump).
+        Enemies on a thin platform ('-') walk off its ends and fall.
+     5b. Optional SECRET EXIT: put a '%' in the same way as 'E' (bottom of the door,
+        2 empty tiles above). Hide it somewhere hard to reach! Reaching it clears the
+        level just like E (same coin rule) and also marks the level "secret found",
+        which can reveal hidden map nodes (see 'secretExit' in section 7). You can
+        place more than one '%'.
+     6. Use 'B' for solid bricks and '-' for thin platforms (jump up through
+        them; Down + Jump drops through).
+     7. Add the object to LEVELS (copy the example), then give it a node on the
+        world map in section 7 so players can reach it.
+
+   LEGEND
+     .  empty air                 #  solid ground (auto-tiled!)
+     B  brick block (solid)       -  thin platform
+     ^  spikes (deadly)           o  coin
+     e  walking enemy             S  start / entry gate
+     E  exit gate                 %  SECRET exit gate (optional)
+     (a space counts as '.')
+
+   DESIGN TIPS
+     - A normal jump clears ~4 tiles up and ~6 tiles across (running goes further).
+       Keep pits <= 5 tiles wide and ledges <= 3 tiles high for walking jumps.
+     - Players need CLEAR_PERCENT % of the coins to clear a level, and earn stars at
+       STAR_STEPS %, so put in enough coins (20-60 is a good range). 0 coins = free clear.
+     - Enemies turn around at walls, solid-ground ledges and spikes, but walk
+       straight off the end of a thin platform.
+   ========================================================================= */
+
+const LEVELS = [
+    { id: '1-1', name: 'FIRST STEPS', theme: 'day', rows: [
+      ".....................................................................................",
+      ".....................................................................................",
+      ".............ooooo.............................................oooo.....ooo..........",
+      ".......ooo..............ooo.........oo.....o.....oo.........................o........",
+      ".............-----.........................................##......-----.............",
+      "..S................e............^##........^.....^^.......###........e..........E....",
+      "#############################################################...#####################",
+      "#############################################################...#####################"]},
+    { id: '1-2', name: 'QUAINT HILLS', theme: 'day', rows: [
+      ".....................................................................................",
+      ".......................................ooooo.........................................",
+      "..............................ooo......-----......ooo............................................",
+      "...ooo..........oooo.........................................ooo.....o....oo.....o..............",
+      "................----............e...e...........................................................",
+      ".S...........e............########################^^^................^....^^.....^......e..E..####",
+      "#################...#########################################...##################################",
+      "#################...#########################################...##################################"]},
+    { id: '1-3', name: 'BASIC RAVINE', theme: 'cave', rows: [
+        "...............",
+        "..............................",
+        ".....................................................oooo.",
+        "...................ooooo..................o.....oo...----............ooo",
+        "...................-----..oo.......oo................................---...",
+        ".....ooo.........e........................^.....^^......###...................",
+        "..S........#######.......^........####..##############..###...####....^....E..",
+        "#########..#######...##########...####..##############..###...####..##########",
+        "#########..#######...##########...####..##############..###...####..##########"]},
+    { id: '1-4', name: 'FALLING BUGS', theme: 'day', rows: [
+      ".....................................................................................",
+      "......................oooo.....................................oooo......................",
+      "..........oooo.........e.........................ooooo........e..................................oooo",
+      "............e.........----...................................---.........oooo....oooo.....................",
+      "..........----.......................oooo......BB..................................................e..E...",
+      "...S..............^....^^.....^^^....e....e...BBB^^^^................^...e...e......e......^^^#############",
+      "#############################################################...###########################################",
+      "#############################################################...###########################################"]},
+    { id: '1-A', name: 'BLOCKULAR', theme: 'sky', rows: [
+        ".........................................BBBB.......................................",
+        "...................................oo...............................................",
+        "...........................ooo..............................ooo.......---#####......",
+        "...................................--.............oooo.........e.........#####..........",
+        "........oo...oo......ooo..-----...........o.............B...-----........#####.....%....",
+        ".....................................o...o.o............B................################",
+        "...........B......e...^.....ooo....................BB...B.......ooo......################",
+        "....S......B....BBBBBBBBB............^...^^^.......BB...B........e....E..################",
+        ".#######...B....BBBBBBBBB...---..BBBBBBBBBBBBBBB...BB...B.......#########################",
+        ".#######........................................................#########################"]},
+    { id: '1-5', name: 'BUG MEADOW', theme: 'day', rows: [
+        "..............................................................oooo...............",
+        "..............................................................e...................",
+        "............ooo...........o.....o...................o....o....----.........................",
+        ".ooo........---..........o.o...............................................oo...oo.............oo",
+        "...................ooo................ooo.........e...^....^.........ooo.................ooo.........",
+        "..S........e...e...e.....^^^....^...e......e..###############.....e...e....^^...^^...e...e....e...E....e...",
+        "#############################################################....##########################################",
+        "#############################################################....##########################################"]},
+    { id: '1-6', name: 'SPIKE CAVERN', theme: 'cave', rows: [
+        "....................................................................................ooo",
+        ".....................................................................................e....",
+        ".............................................................o.........oo..........-----.......",
+        "........ooo..........o......................................o.o........--.....................oo.",
+        "........---.....o...o.o........ooo.......oo...oo.............................o..oo....ooo........",
+        ".ooo...........................---..........................^^^.....##......................E....",
+        ".........S......^...^^^...^^..........e..e..e.^^........##########..##.......^..^^.....e..#######",
+        "#####################################################...##########..##.....#############..#######",
+        "#####################################################...##########..##.....#############..#######"]},
+    { id: '1-7', name: 'DAYTIME PLAINS', theme: 'day', rows: [
+        ".................................................................................e..e",
+        "................................................................................-----......",
+        ".....................................o...........oo.....ooooo..........oo...................oo....",
+        "......................o.......oo....o.o...o...............e.e...............................--............",
+        ".........ooooo.......o.o................................-----...................oo....ooo.........oo..........",
+        ".........-----.............e..^^....^^^...^..e...^^.........e.e.e......^^.............---...................##",
+        "...S.....e...e...e...^^^########################################################^^.e...........e...e...E..####",
+        "###########################################################################################...################",
+        "###########################################################################################...################"]},
+    { id: '1-8', name: 'PLAINS BRIDGES', theme: 'day', rows: [
+        "........................................................................................oo",
+        "..ooo.....................................o......................................ooo.........ooo",
+        "..---..........................ooo...................o...........................e..e...e....---.",
+        ".........ooo.....ooo...........e.e.e......^..............ooo...........ooo.....##-------##........",
+        "...S.....e.e.e......e.e.....###----------#####.......^..e.e.e.e........e.e.....##.......###...E..e",
+        "##########-----------###....###..........#####.....###--------------------##...##.......##########",
+        "##########...........###....###..........#####.....###....................##...##.......##########"]},
+    { id: '1-9', name: 'FIRST CASTLE', theme: 'castle', rows: [
+        "....................e",
+        "......ooo..........---........",
+        ".......e......................................ooo......",
+        "......---.........................oooo......................oo..",
+        "...........ooo...ooo.......ooo......ee......e..^...e..e.................ooo..",
+        "..................................----.....######-------##......ooo............ooo..",
+        "...S.......^^^...^^^...e.e.^^^.........e..#######.......###...e.e...e.e.^^^....e....E.",
+        "#################################################.......#####--------#################",
+        "#################################################.......#####........#################",]},
+    { id: '2-1', name: 'PINE FOREST', theme: 'pine', rows: [
+      "........................oo...........................................................",
+      "........................e............................................................",
+      ".................ooo....--....ooo.......ooo......ooo.......................o................",
+      "...ooo............e..........................................ooo.....o....o.o....oo....ooo......",
+      ".................---........^...e...e...^^^..e...e............................................eE.",
+      ".S.......e...e..e.......^^########################^^^....e...........^..e.^^^....^^.....e..e..####",
+      "#################....#######################################.....#################################",
+      "#################....#######################################.....#################################"]},
+    { id: '2-2', name: 'PINE MEADOW', theme: 'pine', rows: [
+        "....................ooo...................ooo...............................",
+        ".....e..............---....................e.......................--............",
+        "....--......ooo...........o.....o.........---........oo......ooo.................o.....",
+        "............---..........o.o...............................................oo...o.o............oo",
+        "...................ooo............................e..^^....^.........................................",
+        "..S...e.......e..e.....e.^^^....^...e......e..##############.....e...e..e..^^...^^^..e...e....e.^^^...Ee.^.",
+        "############################################################.....##########################################",
+        "############################################################.....##########################################"]},
+    { id: '2-A', name: 'SPIKE FORTRESS', theme: 'castle', rows: [
+        "##################################################################################",
+        "##################################################################################",
+        "###################vvvvvvvvvvvv###################################################",
+        "##################.............##################################...........######",
+        "##################.............#####vvvvvvvvv#####................oo.....oo.......",
+        ".vv...............................................................................",
+        "....ooo.....oo................ooo...........ooo........ooo........................",
+        ".......................###................................e....e..^^..e..^^...E..e",
+        ".......................###...-----.....e...-----....##-------#####################",
+        "..e...S...e.^^.........###..........#####...........##^^^^^^^#####################",
+        "##################--...###^^^^^^^^^^#####...........##############################",
+        "##################.....##################.........--##############################",
+        "##################.....##################...........##############################",
+        "##################.....##################...........##############################",
+        "##################.....##################...........##############################"]},
+    { id: '2-3', name: 'WIDE CAVERNS', theme: 'cave', rows: [
+        "..............................e..e................ooo....................ooooo...",
+        "...................ooo.......------...............---....................-----...ooo...ooo",
+        "..........oooo..............................ooo..........ooo...................................",
+        "..........................oo........ooo..........^................ooo..........e.e...e....e........",
+        "..S...e..........^..^#........e..................###.........^...e...e.....e^##-----------#^^......",
+        "########........#######......####......##.......#####.......##-----------######...........###^^..E.",
+        "#########.....#########.....######.....###.....######......###...........######...........#########",
+        "#########.....#########.....######.....####....#######....####...........######..........##########"]},
+    { id: '2-4', name: 'PINE BRIDGES', theme: 'pine', rows: [
+        "................................................................................ooo......oo",
+        "..ooo.....................................o..........oooo....................................ooo.......",
+        "..---....ooo...................ooo...................----.......................^e..e...e....---......ooooo......",
+        ".................ooo..........^..e.e......^............................ooo.....##-------##^......................",
+        "...S.....e.e..e.....e.^.....###----------#####.....^^...e.e...e..e...e.e.e.....##.......###^..e..e........e.e^.E.",
+        "##########-----------###....###..........#####.....###--------------------##...##.......##########---------######",
+        "##########...........###....###..........#####.....###....................##...##.......##########.........######"]},
+    { id: '2-5', name: 'MARATHON FOREST', theme: 'pine', rows: [
+        "...................................................................................................................%",
+        ".................................................................................................................-----........ooo..",
+        "..............................................................................................................................---.........",
+        ".....................................................................................................o..................................oooo",
+        "............................................................ooo..........oooo...........ooo....ooo.........ooo..........................----..",
+        "....................ooooo..............................ooo........o......----.....................................oo..........................ooo",
+        "......oooo..............e..............ooo.......o....................................e.e.e.....e.e..^..e.................oo........................",
+        "......----..........-----...................................^^^.e.^..e.......e..e^^#######################^^^^e.................ooooo..........e^..E..",
+        "...........................................e....e^....e^^^#######################################################^^^..e...................^^###########",
+        "..S...e....e..^..e.^^^..^^..e..e.e.....^^^###############################################################################^^^^...........###############",
+        "################################################################################################################################.....##################",
+        "################################################################################################################################.....##################"]},
+    {id: '2-B', name: 'SKY CLIMBERS', theme: 'sky', rows: [
+        "..............e..................................................E..",
+        ".........------.............................ooo......eooo......-----",
+        "...........................ooo..............---......BBBBB...........ooo",
+        "...........................---......ooo..............vvvvv...........---",
+        "................oooooe^.............---......................ooo...........",
+        ".S....e.e.......-----####.....................oo.............---.........BB",
+        "#########............####^^^^^^^^^^^^^^^^^^^^^##...........................",
+        "#########............###########################...................^^^.....",
+        "######################################################............#####....",
+        "######################################################............#####...."]},
+        
+];
+const LEVEL_BY_ID = {};
+LEVELS.forEach(l => LEVEL_BY_ID[l.id] = l);
+
+// Turn the text rows into a playable level object.
+function parseLevel(def) {
+  const rows = def.rows.slice();
+  while (rows.length < ROWS) rows.unshift('');                  // pad missing rows at the top
+  const w = Math.max(...rows.map(r => r.length));
+  let theme = def.theme;
+  if (!THEMES[theme]) { console.warn('Level ' + def.id + ' has unknown theme "' + theme + '" - using "day"'); theme = 'day'; }
+  const level = { id: def.id, name: def.name, theme, w, h: ROWS,
+                  grid: [], variant: [], coins: [], enemies: [], start: null, exit: null, secretExits: [] };
+
+  rows.forEach((str, row) => {
+    const line = [];
+    for (let col = 0; col < w; col++) {
+      let ch = str[col] || '.';
+      // Things that are NOT tiles get pulled out into their own lists:
+      if (ch === 'o') { level.coins.push({ col, row, got: false }); ch = '.'; }
+      else if (ch === 'e') { level.enemies.push({ col, row }); ch = '.'; }
+      else if (ch === 'S') { level.start = { col, row }; ch = '.'; }
+      else if (ch === 'E') { level.exit  = { col, row }; ch = '.'; }
+      else if (ch === '%') { level.secretExits.push({ col, row }); ch = '.'; }
+      else if (ch === ' ') ch = '.';
+      line.push(ch);
+    }
+    level.grid.push(line);
+  });
+
+  if (!level.start) { console.warn('Level ' + def.id + ' has no S (start) tile'); level.start = { col: 1, row: ROWS - 3 }; }
+  if (!level.exit)  { console.warn('Level ' + def.id + ' has no E (exit) tile');  level.exit  = { col: w - 2, row: ROWS - 3 }; }
+
+  // Run the auto-tiler once per tile and remember the answer.
+  for (let row = 0; row < level.h; row++) {
+    const vline = [];
+    for (let col = 0; col < level.w; col++) {
+      const ch = level.grid[row][col];
+      vline.push(ch === '#' ? autoTileGround(level, col, row)
+               : ch === '-' ? autoTilePlatform(level, col, row) : null);
+    }
+    level.variant.push(vline);
+  }
+  return level;
+}
+
+
+/* =========================================================================
+   6. PHYSICS & COLLISION
+   ========================================================================= */
+
+// What tile is at this grid position? Beyond the left/right edges is a solid wall.
+function tileAt(level, col, row) {
+  if (col < 0 || col >= level.w) return '#';
+  if (row < 0 || row >= level.h) return '.';
+  return level.grid[row][col];
+}
+const isSolid = ch => ch === '#' || ch === 'B';
+
+// Does a box overlap any solid tile?
+function boxHitsSolid(level, x, y, w, h) {
+  const c0 = Math.floor(x / TILE), c1 = Math.floor((x + w - 0.001) / TILE);
+  const r0 = Math.floor(y / TILE), r1 = Math.floor((y + h - 0.001) / TILE);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (isSolid(tileAt(level, c, r))) return true;
+  return false;
+}
+
+// Thin platforms only block you when you are falling onto their top surface.
+function boxLandsOnPlatform(level, x, w, prevBottom, newBottom) {
+  const row = Math.floor((newBottom - 0.001) / TILE);
+  if (row < 0 || row >= level.h) return false;
+  if (prevBottom > row * TILE + 0.01) return false;            // we were already inside/below it
+  const c0 = Math.floor(x / TILE), c1 = Math.floor((x + w - 0.001) / TILE);
+  for (let c = c0; c <= c1; c++) if (tileAt(level, c, row) === '-') return true;
+  return false;
+}
+
+/* Move horizontally. We step at most 1 pixel at a time, so a fast mover can
+   never skip through a wall. When we touch a wall we snap EXACTLY flush to it
+   (that is what gives the crisp, jitter-free "pixel perfect" stop).
+   Returns -1 / 1 if we hit a wall on that side, else 0. Fractions are kept
+   (sub-pixel precision) for smooth slow acceleration. */
+function moveX(e, level, amount) {
+  let remaining = amount;
+  while (Math.abs(remaining) > 0.0001) {
+    const step = clamp(remaining, -1, 1);
+    if (boxHitsSolid(level, e.x + step, e.y, e.w, e.h)) {
+      if (step > 0) e.x = Math.floor((e.x + e.w + step - 0.001) / TILE) * TILE - e.w;
+      else          e.x = (Math.floor((e.x + step) / TILE) + 1) * TILE;
+      return Math.sign(step);
+    }
+    e.x += step; remaining -= step;
+  }
+  return 0;
+}
+
+// Move vertically. Returns +1 if we landed on something, -1 if we bonked our head.
+function moveY(e, level, amount) {
+  let remaining = amount;
+  while (Math.abs(remaining) > 0.0001) {
+    const step = clamp(remaining, -1, 1), ny = e.y + step;
+    let blocked = boxHitsSolid(level, e.x, ny, e.w, e.h);
+    if (!blocked && step > 0 && !(e.dropTimer > 0)) {
+      blocked = boxLandsOnPlatform(level, e.x, e.w, e.y + e.h, ny + e.h);
+    }
+    if (blocked) {
+      if (step > 0) e.y = Math.floor((ny + e.h - 0.001) / TILE) * TILE - e.h;   // stand on top
+      else          e.y = (Math.floor(ny / TILE) + 1) * TILE;                   // hit the ceiling
+      return Math.sign(step);
+    }
+    e.y += step; remaining -= step;
+  }
+  return 0;
+}
+
+// Which side (if any) is a wall touching us right now? (1 = right, -1 = left)
+function wallProbe(level, p) {
+  if (boxHitsSolid(level, p.x + 1, p.y, p.w, p.h)) return 1;
+  if (boxHitsSolid(level, p.x - 1, p.y, p.w, p.h)) return -1;
+  return 0;
+}
+
+// Is the player standing on a thin platform (and NOT on solid ground)?
+function standingOnPlatform(level, p) {
+  const row = Math.floor((p.y + p.h + 0.5) / TILE);
+  const c0 = Math.floor(p.x / TILE), c1 = Math.floor((p.x + p.w - 0.001) / TILE);
+  let plat = false;
+  for (let c = c0; c <= c1; c++) {
+    const t = tileAt(level, c, row);
+    if (isSolid(t)) return false;
+    if (t === '-') plat = true;
+  }
+  return plat;
+}
+
+function touchesHazard(level, p) {
+  const c0 = Math.floor(p.x / TILE), c1 = Math.floor((p.x + p.w) / TILE);
+  const r0 = Math.floor(p.y / TILE), r1 = Math.floor((p.y + p.h) / TILE);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const t = tileAt(level, c, r);        // what kind of tile is here?
+    if (t === '^' && aabb(p.x, p.y, p.w, p.h, c * TILE + 3, r * TILE + 7, 10, 9)) return true;   // floor spikes
+    if (t === 'v' && aabb(p.x, p.y, p.w, p.h, c * TILE + 3, r * TILE,     10, 9)) return true;   // ceiling spikes
+  }
+  return false;
+}
+
+/* ---- The player --------------------------------------------------------- */
+const Player = {
+  x: 0, y: 0, w: 14, h: 14,          // position and hitbox (14x14 square)
+  vx: 0, vy: 0,                      // speed in pixels per frame
+  onGround: false, facing: 1,
+  coyote: 0, jumpBuffer: 0, dropTimer: 0,
+  edgeLock: 0, lockDir: 0, wallSide: 0,   // used by the wall edge-lock mechanic
+  sx: 1, sy: 1                       // squash & stretch for juicy animation
+};
+
+function resetPlayer(level) {
+  const p = Player;
+  p.x = level.start.col * TILE + 1;
+  p.y = (level.start.row + 1) * TILE - p.h;
+  p.vx = p.vy = 0; p.onGround = false; p.facing = 1;
+  p.coyote = p.jumpBuffer = p.dropTimer = p.edgeLock = p.lockDir = p.wallSide = 0;
+  p.sx = p.sy = 1;
+}
+
+/* ---- FRAME-PERFECT WALL EDGE-LOCK (SMB1 style) -----------------------------
+   The moment you FIRST touch a wall while holding towards it, we:
+     1. throw away your sideways speed completely,
+     2. lock your position to the exact whole pixel flush against the wall,
+     3. ignore "push into the wall" input for EDGE_LOCK_FRAMES frames.
+   Result: no vibrating against walls, no sneaking inside blocks, and every
+   jump that starts next to a wall behaves exactly the same (frame-perfect).
+   It only triggers on INITIAL contact - hold the key and keep walking along a
+   wall and nothing special happens until you let go and touch again. */
+function edgeLockOnContact(p, side) {
+  p.vx = 0;
+  p.x = Math.round(p.x);
+  p.edgeLock = PHYS.EDGE_LOCK_FRAMES;
+  p.lockDir = side;
+}
+
+// Safety net: if we are somehow stuck inside a block, nudge out the nearest way.
+function pushOut(p, level) {
+  for (let d = 1; d <= 4; d++) for (const dx of [d, -d]) {
+    if (!boxHitsSolid(level, p.x + dx, p.y, p.w, p.h)) { p.x += dx; return; }
+  }
+  for (let d = 1; d <= 4; d++) {
+    if (!boxHitsSolid(level, p.x, p.y - d, p.w, p.h)) { p.y -= d; return; }
+  }
+}
+
+function updatePlayer(level) {
+  const p = Player;
+  const left = Input.down('left'), right = Input.down('right'), run = Input.down('run');
+  let dir = (right ? 1 : 0) - (left ? 1 : 0);
+
+  // -- edge lock: ignore pushing into the wall for a couple of frames
+  if (p.edgeLock > 0) { p.edgeLock--; if (dir === p.lockDir) dir = 0; }
+
+  // -- horizontal acceleration (classic NES feel: slow build-up, momentum)
+  const maxSpeed = run ? PHYS.MAX_RUN : PHYS.MAX_WALK;
+  const accel    = run ? PHYS.RUN_ACCEL : PHYS.WALK_ACCEL;
+  if (dir !== 0) {
+    p.facing = dir;
+    if (p.vx * dir < 0) p.vx += dir * PHYS.SKID;                         // turning around = skid
+    else if (Math.abs(p.vx) < maxSpeed) {
+      p.vx += dir * accel;
+      if (Math.abs(p.vx) > maxSpeed) p.vx = dir * maxSpeed;
+    } else if (p.onGround) {                                             // let go of run -> ease down
+      p.vx -= dir * PHYS.FRICTION;
+      if (Math.abs(p.vx) < maxSpeed) p.vx = dir * maxSpeed;
+    }
+  } else if (p.onGround) {                                               // no input -> friction
+    if (Math.abs(p.vx) <= PHYS.FRICTION) p.vx = 0; else p.vx -= Math.sign(p.vx) * PHYS.FRICTION;
+  }
+  // (In the air with no input we keep our momentum, like the original.)
+
+  // -- jumping (with a little "coyote time" and "jump buffer" forgiveness)
+  if (Input.pressed('jump')) p.jumpBuffer = PHYS.JUMP_BUFFER;
+  if (p.onGround) p.coyote = PHYS.COYOTE; else if (p.coyote > 0) p.coyote--;
+
+  if (p.onGround && Input.down('down') && Input.pressed('jump') && standingOnPlatform(level, p)) {
+    p.dropTimer = 10; p.y += 1; p.onGround = false; p.jumpBuffer = 0; p.coyote = 0;   // drop through
+  }
+  if (p.jumpBuffer > 0 && p.coyote > 0) {
+    p.vy = -(PHYS.JUMP_VEL + Math.abs(p.vx) * PHYS.JUMP_BONUS);          // faster = higher jump
+    p.onGround = false; p.coyote = 0; p.jumpBuffer = 0;
+    p.sx = 0.8; p.sy = 1.25;                                             // stretch!
+    Sfx.jump();
+  } else if (p.jumpBuffer > 0) p.jumpBuffer--;
+
+  // -- gravity: light while rising with jump held, heavy otherwise (variable jump height)
+  const g = (p.vy < 0 && Input.down('jump')) ? PHYS.GRAV_HELD : PHYS.GRAV_FALL;
+  const prevVy = p.vy;
+  p.vy = Math.min(p.vy + g, PHYS.MAX_FALL);
+
+  // -- move: X first, then Y (just like the NES)
+  if (p.dropTimer > 0) p.dropTimer--;
+  if (moveX(p, level, p.vx) !== 0) p.vx = 0;
+
+  // wall edge-lock on INITIAL contact only
+  const side = wallProbe(level, p);
+  const holding = (side > 0 && right) || (side < 0 && left);
+  if (side !== 0 && holding && p.wallSide !== side) edgeLockOnContact(p, side);
+  p.wallSide = side;
+
+  const hitY = moveY(p, level, p.vy);
+  const wasGround = p.onGround;
+  p.onGround = hitY > 0;
+  if (hitY !== 0) p.vy = 0;
+  if (p.onGround && !wasGround && prevVy > 2.5) { p.sx = 1.25; p.sy = 0.75; }   // landing squash
+
+  if (boxHitsSolid(level, p.x, p.y, p.w, p.h)) pushOut(p, level);
+
+  // squash & stretch relaxes back to normal
+  p.sx += (1 - p.sx) * 0.25; p.sy += (1 - p.sy) * 0.25;
+}
+
+/* ---- Enemies: walk back and forth, turn at walls, ledges and spikes ------
+   Exception: an enemy standing on a THIN platform ('-') does not turn at the
+   edge - it walks straight off and falls (it still turns at walls and spikes). */
+function updateEnemy(e, level) {
+  if (!e.alive) { if (e.deadT > 0) e.deadT--; return; }
+  e.vy = Math.min(e.vy + 0.3, 4);
+  let flip = moveX(e, level, e.vx) !== 0;
+  if (e.onGround && !flip) {
+    const frontX = e.vx > 0 ? e.x + e.w + 1 : e.x - 2;
+    const col = Math.floor(frontX / TILE);
+    const tFoot = tileAt(level, col, Math.floor((e.y + e.h + 2) / TILE));
+    const tBody = tileAt(level, col, Math.floor((e.y + e.h - 3) / TILE));
+    if (tBody === '^') flip = true;                                       // spikes ahead
+    else if (!(isSolid(tFoot) || tFoot === '-') && !standingOnPlatform(level, e)) flip = true;   // ledge ahead (solid ground only)
+  }
+  if (flip) e.vx = -e.vx;
+  const hitY = moveY(e, level, e.vy);
+  e.onGround = hitY > 0;
+  if (hitY !== 0) e.vy = 0;
+  if (e.y > level.h * TILE + 40) e.alive = false;
+}
+
+
+/* =========================================================================
+   7. GAME STATES   (Title -> Map -> Level -> Tally -> Map ...)
+   -------------------------------------------------------------------------
+   Every state is an object with enter(), update() and draw().
+   changeState('map') switches between them.
+   ========================================================================= */
+
+const Game = {
+  state: null, name: '', tick: 0, debug: false, deaths: 0, fps: 60,
+  fade: { phase: 'none', t: 0, cb: null }
+};
+const STATES = {};
+
+function changeState(name, args) {
+  Game.name = name;
+  Game.state = STATES[name];
+  Game.state.enter(args);
+}
+
+// Fade to black, run cb() (usually changeState), then fade back in.
+function fadeTo(cb) {
+  if (Game.fade.phase !== 'none') return;
+  Game.fade = { phase: 'out', t: 0, cb };
+}
+function updateFade() {
+  const f = Game.fade;
+  if (f.phase === 'none') return false;
+  f.t++;
+  if (f.phase === 'out' && f.t >= 12) { f.cb(); f.phase = 'in'; f.t = 0; }
+  else if (f.phase === 'in' && f.t >= 12) f.phase = 'none';
+  return true;                                    // true = the state should stay frozen
+}
+function drawFade() {
+  const f = Game.fade;
+  if (f.phase === 'none') return;
+  const a = f.phase === 'out' ? f.t / 12 : 1 - f.t / 12;
+  ctx.globalAlpha = Math.ceil(clamp(a, 0, 1) * 4) / 4;      // 4 steps = chunky NES-style fade
+  rect(0, 0, SCREEN_W, SCREEN_H, C.black);
+  ctx.globalAlpha = 1;
+}
+
+function blink(rate = 30) { return Math.floor(Game.tick / rate) % 2 === 0; }
+
+/* ---- TITLE SCREEN ------------------------------------------------------- */
+STATES.title = {
+  enter() { this.msg = ''; },
+  update() {
+    if (Input.pressed('color')) { Save.color = (Save.color + 1) % PLAYER_COLORS.length; Save.store(); Sfx.step(); }
+    if (Input.pressed('face'))  { Save.face  = (Save.face + 1) % FACE_COUNT; Save.store(); Sfx.step(); }
+    if (Input.pressed('controls')) { applyControls(Save.controls === 'wasd' ? 'arrows' : 'wasd'); Save.store(); Sfx.step(); }
+    if (Input.pressed('reset')) { Save.reset(); this.msg = 'PROGRESS RESET'; Sfx.fail(); }
+    if (Input.pressed('start')) { Sfx.star(); fadeTo(() => changeState('map')); }
+  },
+  draw() {
+    drawBackground('day', Game.tick * 0.6);
+    rect(0, 208, SCREEN_W, 32, C.brown); rect(0, 208, SCREEN_W, 4, C.green); rect(0, 212, SCREEN_W, 1, C.dkgreen);
+    drawText('SQUARE QUEST', 128, 40, C.yellow, 4, 'center');
+    drawText('AN 8-BIT PLATFORMER', 128, 70, C.white, 1, 'center');
+    // the square bounces on the ground, wearing the chosen look
+    const bounce = Math.abs(Math.sin(Game.tick / 14)) * 22;
+    drawPlayerSprite(121, 194 - bounce, 14, 14, Save.color, Save.face, 1,
+                     1 - (bounce < 2 ? 0.1 : 0), 1 + (bounce < 2 ? 0.1 : 0));
+    drawText('C: COLOR     F: FACE', 128, 104, C.white, 1, 'center');
+    drawText('T: CONTROLS - ' + CONTROLS.label, 128, 114, C.white, 1, 'center');
+    if (blink()) drawText('PRESS ENTER', 128, 140, C.white, 2, 'center');
+    drawText(CONTROLS.label + ' MOVE  SPACE JUMP  X RUN', 128, 224, C.white, 1, 'center');
+    drawText(CONTROLS.debugLabel + ': DEBUG   M: MUTE   R: RESET SAVE', 128, 232, C.grey, 1, 'center');
+    if (this.msg) drawText(this.msg, 128, 128, C.red, 1, 'center');
+  }
+};
+
+/* ---- WORLD MAP  -  HOW TO BUILD A WORLD FROM SCRATCH -------------------------
+   The map is a little graph of NODES (stops) joined by LINKS (paths).
+   Each world is one object in the WORLDS list:
+
+     { name: 'WORLD 1', bg: C.green, dots: C.dkgreen, deco: 'tree', nodes: [ ... ] }
+
+     name    shown top-left (keep it under ~12 letters)
+     bg      background colour of the map (any colour from the palette C)
+     dots    colour of the little texture dots on the background
+     deco    scenery scattered around: 'tree', 'crystal' or 'cloud'
+     width, height   (optional) make the map at least this many pixels big
+     nodes   the stops - see below
+
+   THE MAP SCROLLS, SO A WORLD CAN HOLD AS MANY LEVELS AS YOU LIKE.
+   One screen is 256 x 240 pixels, but a node's x / y can be any number
+   (hundreds, thousands, even negative). The camera follows the little square
+   as it walks and stops at the outer edge of your nodes plus a margin. Small
+   arrows appear at the screen edges when there is more map in that direction.
+   So a 20-level world is just a longer, taller or winding path of nodes.
+   Spacing tip: 50-70 pixels between neighbours looks good and leaves room for
+   the three mini stars under each level.
+
+   NODE TYPES (every node needs  id, type, x, y;  ids are unique inside a world)
+     { id: 'w1start', type: 'start', x: 24, y: 150, links: { right: '1-1' } }
+         where the player begins in that world. Give every world ONE start.
+     { id: '1-1', type: 'level', level: '1-1', x: 84, y: 150, links: { ... } }
+         a stage. 'level' must match an id in LEVELS (section 5).
+     { id: 'pipe', type: 'warp', x: 684, y: 150, warpTo: { world: 1, node: 'w2start' } }
+         a pipe to another world. world = its position in WORLDS counting from 0
+         (0 = first world, 1 = second ...); node = a node id inside that world.
+     { id: 'goal', type: 'goal', x: 900, y: 96 }
+         the end of the game: shows the congratulations screen.
+
+   OPTIONAL NODE SETTINGS
+     links   { up, down, left, right }  which node each ARROW KEY walks to.
+             Write only ONE end of a path - the way back is added for you
+             (unless you already wrote it). Paths are drawn as dotted lines,
+             and may be diagonal; each node has at most 4 exits.
+     after   ['1-1']  node stays locked (grey, '?') until ANY of these LEVEL
+             ids has been cleared. No 'after' = always open.
+     secret  { level: '1-2', minPct: 100 }  node is invisible until that level
+             has been beaten with at least minPct % of its coins (100 = gold).
+     secretExit  '1-2'  node is invisible until that level has been cleared through
+             its SECRET EXIT (a '%' tile in the level). Use it for a bonus level or
+             a warp pipe. A little cyan % appears on the level's map node once found.
+             Link the hidden node to the level like any other (links: ...) - the
+             path stays hidden until the secret is found.
+
+   STEP BY STEP
+     1. Make your levels first (section 5).
+     2. Add a world object to WORLDS and choose bg / dots / deco.
+     3. Add a 'start' node, then add one node per level, moving x up by ~60
+        each time (or change y to make the path wind). Link each node to the
+        next:  links: { right: 'next-id' }.
+     4. Lock levels in order with  after: ['previous-level-id'].
+     5. Branches: give one node two links (say up and right). Put
+        after: ['a', 'b'] on the node where they merge to open it when EITHER
+        branch is cleared.
+     6. End the world with a 'warp' to the next world, or a 'goal'.
+     7. Reload and walk it. Mistakes (unknown node ids, missing levels) are
+        listed in the browser console (F12).
+   Old saves are safe to keep: unknown worlds/nodes fall back to the first start.
+   ------------------------------------------------------------------------- */
+const WORLDS = [
+  // Add your worlds here, separated by commas. Example with 10 levels that
+  // scrolls sideways (remove the //):
+  
+    { name: 'WORLD 1', bg: C.green, dots: C.dkgreen, deco: 'tree', nodes: [
+        { id: 'w1start', type: 'start', x: 20,  y: 200, links: { right: '1-1' } },
+        { id: '1-1', type: 'level', level: '1-1', x: 60, y: 200, links: { left: 'w1start', right: '1-2' } },
+        { id: '1-2', type: 'level', level: '1-2', x: 100, y: 180, links: { left: '1-1', up: '1-3', right: '1-4', down: '1-4' }, after: [ '1-1' ] },
+        { id: '1-3', type: 'level', level: '1-3', x: 130, y: 130, links: { down: '1-2' }, after: [ '1-2' ] },
+        { id: '1-4', type: 'level', level: '1-4', x: 150, y: 190, links: { left: '1-2', right: '1-5', down: '1-A' }, after: [ '1-2' ] },
+        { id: '1-A', type: 'level', level: '1-A', x: 200, y: 220, links: { left: '1-4', up: '1-6' }, after: [ '1-4@100' ] },
+        { id: '1-5', type: 'level', level: '1-5', x: 220, y: 150, links: { left: '1-3', down: '1-4' }, after: [ '1-3', '1-4' ] },
+        { id: '1-6', type: 'level', level: '1-6', x: 260, y: 170, links: { left: '1-5' }, after: [ '1-5', '1-A' ] },
+        { id: 'w1secret', type: 'warp', x: 320, y: 250, warpTo: { world: 1, node: 'w2secretstart'}, links: { left: '1-A' }, secretExit: '1-A' },
+        { id: '1-7', type: 'level', level: '1-7', x: 250, y: 100, links: { down: '1-6' }, after: [ '1-6' ] },
+        { id: '1-8', type: 'level', level: '1-8', x: 300, y: 110, links: { left: '1-6', down: '1-6' }, after: [ '1-6' ] },
+        { id: '1-9', type: 'level', level: '1-9', x: 260, y: 40, links: { left: 'w1exit', right: '1-8', down: '1-7' }, after: [ '1-7', '1-8' ]},
+        { id: 'w1exit', type: 'warp', x: 160, y: 50, warpTo: { world: 1, node: 'w2start' }, links: { right: '1-9', down: '1-3' }, after: [ '1-9' ], linkGates: { '1-3': { level: '1-9', minPct: 100 } } },
+    ]},
+
+    { name: 'WORLD 2', bg: "#699967", dots: "#345645", deco: 'tree', nodes: [
+        {id: 'w2start', type: 'start', x: 100, y: 300, links: {} },
+        {id: 'w2startexit', type: 'warp', x: 60, y: 310, warpTo: { world: 0, node: 'w1exit'}, links: { right: 'w2start'} },
+        {id: 'w2secretstart', type: 'start', x: 50, y: 100, links: { down: '2-A' } },
+        {id: 'w2secretexit', type: 'warp', x: 20, y: 70, warpTo: { world: 0, node: 'w1secret'}, links: { right: 'w2secretstart', down: 'w2secretstart' } },
+        {id: '2-1', type: 'level', level: '2-1', x: 180, y: 300, links: { left: 'w2start', up: '2-2' } },
+        {id: '2-2', type: 'level', level: '2-2', x: 180, y: 260, links: { left: '2-A', up: '2-3', right: '2-3', down: '2-1' }, after: [ '2-1', '2-A' ] },
+        {id: '2-A', type: 'level', level: '2-A', x: 80, y: 180, links: { up: 'w2secretstart', right: '2-5', down: '2-2' }, secretExit: '1-A', after: [ '2-2@100', '2-5@80', '1-A' ] },
+        {id: '2-3', type: 'level', level: '2-3', x: 230, y: 230, links: { left: '2-4', down: '2-2' }, after: ['2-2'] },
+        {id: '2-4', type: 'level', level: '2-4', x: 170, y: 210, links: { right: '2-3' }, after: ['2-3'] },
+        {id: '2-5', type: 'level', level: '2-5', x: 180, y: 160, links: { left: '2-A', right: '2-B', down: '2-4' }, after: ['2-4', '2-A@100'] },
+        {id: '2-B', type: 'level', level: '2-B', x: 250, y: 150, links: { left: '2-5' }, secretExit: '2-5' },
+    ]},
+];
+
+// ---- Prepare the worlds (you never need to edit this part) -----------------
+const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
+WORLDS.forEach((w, wi) => {
+  w.nodes = w.nodes || []; w.byId = {};
+  w.nodes.forEach(n => { n.links = n.links || {}; w.byId[n.id] = n; });
+  for (const n of w.nodes) {
+    if (n.type === 'level' && !LEVEL_BY_ID[n.level]) console.warn('World ' + (wi + 1) + ': node "' + n.id + '" uses unknown level "' + n.level + '"');
+    if (n.secretExit && !(LEVEL_BY_ID[n.secretExit] && LEVEL_BY_ID[n.secretExit].rows.some(r => r.includes('%')))) {
+      console.warn('World ' + (wi + 1) + ': node "' + n.id + '" needs a secret exit in level "' + n.secretExit + '" but that level has no % tile');
+    }
+    for (const dir of Object.keys(n.links)) {
+      const m = w.byId[n.links[dir]];
+      if (!OPPOSITE[dir] || !m) { console.warn('World ' + (wi + 1) + ': node "' + n.id + '" has a bad link ' + dir + ' -> "' + n.links[dir] + '"'); delete n.links[dir]; continue; }
+      if (!m.links[OPPOSITE[dir]]) m.links[OPPOSITE[dir]] = n.id;     // the way back, for free
+    }
+  }
+  // How big is the map? Cover every node plus a margin (HUD bars need room top and bottom).
+  let x0 = 0, y0 = 0, x1 = Math.max(SCREEN_W, w.width || 0), y1 = Math.max(SCREEN_H, w.height || 0);
+  for (const n of w.nodes) { x0 = Math.min(x0, n.x - 28); x1 = Math.max(x1, n.x + 28); y0 = Math.min(y0, n.y - 50); y1 = Math.max(y1, n.y + 40); }
+  w.bounds = { x0, y0, x1, y1 };
+});
+
+// A node with 'secret' and/or 'secretExit' stays hidden until ONE of them is satisfied.
+// A node with 'secret' and/or 'secretExit' stays hidden until ONE of them is satisfied.
+const nodeVisible = n => {
+  if (!n.secret && !n.secretExit) return true;                                   // not a secret node
+  const byCoins = !!n.secret && (Save.best[n.secret.level] || 0) >= n.secret.minPct;
+  const byExit  = !!n.secretExit && !!Save.secret[n.secretExit];
+  return byCoins || byExit;
+};
+const countHiddenNodes = () => WORLDS.reduce((sum, w) => sum + w.nodes.filter(n => !nodeVisible(n)).length, 0);
+// Is the PATH between two linked nodes open? A node can list 'linkGates' for a neighbour:
+//   linkGates: { '1-3': { level: '1-9', minPct: 100 } }
+// = the path between this node and node '1-3' only exists once level 1-9 has been beaten
+// with at least 100% of its coins. It works in both directions (list it on either node).
+function linkOpen(a, b) {
+  const gate = (a.linkGates && a.linkGates[b.id]) || (b.linkGates && b.linkGates[a.id]);
+  return !gate || (Save.best[gate.level] || 0) >= gate.minPct;
+}
+// One entry of a node's 'after' list is met when:
+//   '2-4'      level 2-4 has been cleared
+//   '2-A@100'  level 2-A has been beaten with at least 100% of its coins (any number works: '@60', '@90'...)
+const afterMet = entry => {
+  const [id, pct] = String(entry).split('@');
+  return pct === undefined ? !!Save.cleared[id] : (Save.best[id] || 0) >= Number(pct);
+};
+const nodeUnlocked = n => nodeVisible(n) && (!n.after || n.after.length === 0 || n.after.some(afterMet));
+
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+  const t = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+STATES.map = {
+  decoCache: {},
+  enter(args = {}) {
+    if (!WORLDS[Save.world]) { Save.world = 0; Save.node = ''; }
+    this.world = Save.world;
+    this.nodes = WORLDS[this.world];
+    this.empty = !this.nodes || !this.nodes.nodes.length;
+    if (this.empty) { this.msg = ''; this.msgT = 0; this.moving = null; this.showEnd = false; return; }
+    if (!this.nodes.byId[Save.node]) Save.node = this.nodes.nodes[0].id;
+    this.cur = Save.node;
+    const n = this.nodes.byId[this.cur];
+    this.pos = { x: n.x, y: n.y };
+    this.moving = null; this.showEnd = false;
+    this.msg = args.message || ''; this.msgT = args.message ? 200 : 0;
+    this.makeDeco();
+    this.cam = { x: 0, y: 0 }; this.updateCamera(true);
+  },
+  // Scatter trees/crystals around, but not on top of nodes or paths (seeded = always the same)
+  makeDeco() {
+    if (this.decoCache[this.world]) { this.deco = this.decoCache[this.world]; return; }
+    const b = this.nodes.bounds;
+    let seed = 1234 + this.world * 77;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const list = [], nodes = this.nodes.nodes;
+    const want = Math.floor((b.x1 - b.x0) * (b.y1 - b.y0) / 1700);          // scenery grows with the map (~36 per screen)
+    for (let tries = 0; tries < want * 12 && list.length < want; tries++) {
+      const x = b.x0 + 8 + Math.floor(rnd() * (b.x1 - b.x0 - 16)), y = b.y0 + 40 + Math.floor(rnd() * (b.y1 - b.y0 - 50));
+      let ok = true;
+      for (const n of nodes) {
+        if (Math.hypot(x - n.x, y - n.y) < 26) ok = false;
+        for (const id in n.links) { const m = this.nodes.byId[n.links[id]]; if (distToSegment(x, y, n.x, n.y, m.x, m.y) < 12) ok = false; }
+      }
+      if (ok) list.push({ x, y });
+    }
+    this.deco = this.decoCache[this.world] = list.sort((a, b) => a.y - b.y);
+  },
+  // The map camera: follows the little square, never leaves the map edges.
+  updateCamera(snap) {
+    const b = this.nodes.bounds;
+    const tx = clamp(Math.round(this.pos.x - SCREEN_W / 2), b.x0, b.x1 - SCREEN_W);
+    const ty = clamp(Math.round(this.pos.y - 112), b.y0, b.y1 - SCREEN_H);
+    if (snap) { this.cam.x = tx; this.cam.y = ty; }
+    else { this.cam.x += (tx - this.cam.x) * 0.12; this.cam.y += (ty - this.cam.y) * 0.12; }
+  },
+  update() {
+    if (this.empty) { if (Input.pressed('back') || Input.pressed('start') || Input.pressed('confirm')) fadeTo(() => changeState('title')); return; }
+    if (this.msgT > 0) this.msgT--;
+    this.updateCamera(false);
+    if (this.showEnd) {
+      if (Input.pressed('start') || Input.pressed('confirm') || Input.pressed('back')) { this.showEnd = false; fadeTo(() => changeState('title')); }
+      return;
+    }
+    const cur = this.nodes.byId[this.cur];
+    if (this.moving) {                                       // glide along the path
+      const m = this.moving, from = this.nodes.byId[m.from], to = this.nodes.byId[m.to];
+      m.t += 2.2 / m.len;
+      if (Game.tick % 8 === 0) Sfx.step();
+      if (m.t >= 1) { this.cur = m.to; this.pos = { x: to.x, y: to.y }; this.moving = null; Save.node = this.cur; Save.world = this.world; Save.store(); }
+      else this.pos = { x: from.x + (to.x - from.x) * m.t, y: from.y + (to.y - from.y) * m.t };
+      return;
+    }
+    for (const dir of ['up', 'down', 'left', 'right']) {
+      if (Input.pressed(dir) && cur.links[dir]) {
+        const to = this.nodes.byId[cur.links[dir]];
+        if (nodeUnlocked(to) && linkOpen(cur, to)) { this.moving = { from: cur.id, to: to.id, t: 0, len: Math.hypot(to.x - cur.x, to.y - cur.y) || 1 }; return; }
+        Sfx.fail();
+      }
+    }
+    if (Input.pressed('back')) { fadeTo(() => changeState('title')); return; }
+    if (Input.pressed('start') || Input.pressed('confirm')) {
+      Save.world = this.world; Save.node = this.cur; Save.store();
+      if (cur.type === 'level') { if (!LEVEL_BY_ID[cur.level]) { Sfx.fail(); return; } Sfx.star(); fadeTo(() => changeState('level', cur.level)); }
+      else if (cur.type === 'warp') {
+        if (!cur.warpTo || !WORLDS[cur.warpTo.world]) { Sfx.fail(); return; }
+        Sfx.star();
+        fadeTo(() => { Save.world = cur.warpTo.world; Save.node = cur.warpTo.node; Save.store(); changeState('map', { message: 'WARPED TO WORLD ' + (cur.warpTo.world + 1) + '!' }); });
+      } else if (cur.type === 'goal') { Sfx.star(); this.showEnd = true; }
+    }
+  },
+  draw() {
+    if (this.empty) { this.drawEmpty(); return; }
+    const th = this.nodes, cx = Math.round(this.cam.x), cy = Math.round(this.cam.y);
+    rect(0, 0, SCREEN_W, SCREEN_H, th.bg);
+    ctx.save(); ctx.translate(-cx, -cy);               // until restore(), everything is drawn in MAP coordinates
+    for (let y = Math.floor(cy / 8) * 8; y < cy + SCREEN_H; y += 8) {
+      for (let x = Math.floor(cx / 8) * 8 + ((y / 8 % 2) + 2) % 2 * 4; x < cx + SCREEN_W; x += 8) rect(x, y, 1, 1, th.dots);
+    }
+    // decorations
+    for (const d of this.deco) {
+      if (th.deco === 'tree') {
+        rect(d.x - 1, d.y - 3, 2, 3, C.dkbrown);
+        rect(d.x - 1, d.y - 6, 3, 3, C.dkgreen); rect(d.x - 2, d.y - 9, 5, 3, C.dkgreen); rect(d.x - 3, d.y - 12, 7, 3, C.dkgreen);
+        rect(d.x - 2, d.y - 12, 2, 1, C.green);
+      } else if (th.deco === 'cloud') {
+        rect(d.x - 5, d.y - 8, 10, 3, C.white); rect(d.x - 8, d.y - 5, 16, 3, C.white); rect(d.x - 6, d.y - 2, 12, 1, C.cyan);
+      } else {
+        rect(d.x - 1, d.y - 8, 3, 8, C.cyan); rect(d.x, d.y - 10, 1, 2, C.cyan); rect(d.x - 1, d.y - 8, 1, 7, C.white);
+        rect(d.x + 3, d.y - 5, 2, 5, C.purple);
+      }
+    }
+    // paths (dotted lines between linked nodes)
+    const drawn = new Set();
+    for (const n of th.nodes) for (const dir in n.links) {
+      const m = th.byId[n.links[dir]];
+      const key = n.id < m.id ? n.id + '|' + m.id : m.id + '|' + n.id;
+            if (drawn.has(key) || !nodeVisible(n) || !nodeVisible(m) || !linkOpen(n, m)) continue;
+      drawn.add(key);
+      if (Math.max(n.x, m.x) < cx - 8 || Math.min(n.x, m.x) > cx + SCREEN_W + 8 || Math.max(n.y, m.y) < cy - 8 || Math.min(n.y, m.y) > cy + SCREEN_H + 8) continue;
+      const open = nodeUnlocked(n) && nodeUnlocked(m);
+      const steps = Math.floor(Math.hypot(m.x - n.x, m.y - n.y) / 5);
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        rect(n.x + (m.x - n.x) * t - 1, n.y + (m.y - n.y) * t - 1, 3, 3, C.black);
+        rect(n.x + (m.x - n.x) * t - 1, n.y + (m.y - n.y) * t - 1, 2, 2, open ? C.yellow : C.dkgrey);
+      }
+    }
+    // nodes
+    for (const n of th.nodes) { if (nodeVisible(n)) this.drawNode(n); }
+    // the player marker
+    const bob = Math.round(Math.sin(Game.tick / 8) * 2);
+    drawPlayerSprite(this.pos.x - 7, this.pos.y - 24 + bob, 14, 14, Save.color, Save.face, 1);
+    rect(this.pos.x - 4, this.pos.y - 8, 8, 2, C.black);          // little shadow
+    ctx.restore();                                                // back to screen coordinates
+    this.drawScrollArrows();
+    // HUD
+    rect(0, 0, SCREEN_W, 20, C.black); rect(0, 20, SCREEN_W, 1, C.dkgrey);
+    drawText(th.name, 8, 7, C.yellow, 2);
+    let total = 0; for (const id in Save.best) total += Save.best[id] >= 100 ? 1 : 0;
+    drawText('GOLD ' + total + '/' + LEVELS.length, 248, 8, C.white, 1, 'right');
+    const cur = th.byId[this.cur];
+    rect(0, 222, SCREEN_W, 18, C.black);
+    if (cur.type === 'level') {
+      const lv = LEVEL_BY_ID[cur.level] || { id: cur.level, name: 'MISSING LEVEL' };
+      drawText(lv.id + ' ' + lv.name, 8, 225, C.white, 1);
+      drawText(Save.cleared[lv.id] ? 'BEST ' + (Save.best[lv.id] || 0) + '%' : 'NOT CLEARED', 248, 225, Save.cleared[lv.id] ? C.yellow : C.grey, 1, 'right');
+    } else if (cur.type === 'warp') drawText('WARP PIPE! PRESS ENTER', 8, 225, C.green, 1);
+    else if (cur.type === 'goal') drawText('THE GOAL! PRESS ENTER', 8, 225, C.yellow, 1);
+    else drawText('START', 8, 225, C.white, 1);
+    drawText(CONTROLS.label + ' MOVE   ENTER PLAY   ESC TITLE', 128, 233, C.grey, 1, 'center');
+    if (this.msgT > 0) { rect(20, 100, 216, 24, C.black); drawText(this.msg, 128, 108, C.yellow, 1, 'center'); }
+    if (this.showEnd) {
+      rect(16, 70, 224, 100, C.black); rect(18, 72, 220, 96, C.dkgrey); rect(20, 74, 216, 92, C.black);
+      drawText('CONGRATULATIONS!', 128, 86, C.yellow, 2, 'center');
+      drawText('YOU CLEARED EVERY WORLD', 128, 112, C.white, 1, 'center');
+      drawText('GO BACK FOR GOLD STARS!', 128, 126, C.white, 1, 'center');
+      if (blink()) drawText('PRESS ENTER', 128, 148, C.cyan, 1, 'center');
+    }
+  },
+  // Blinking arrows on the screen edges: "there is more map this way".
+  drawScrollArrows() {
+    const b = this.nodes.bounds, cam = this.cam, nudge = (Game.tick >> 4) & 1;
+    const tri = (x, y, dir) => {
+      for (const [ox, oy, col] of [[1, 1, C.black], [0, 0, C.white]]) {
+        ctx.fillStyle = col;
+        for (let i = 0; i < 3; i++) {
+          if (dir === 'up')    ctx.fillRect(x - i + ox, y + i + oy, 1 + 2 * i, 1);
+          if (dir === 'down')  ctx.fillRect(x - (2 - i) + ox, y + i + oy, 5 - 2 * i, 1);
+          if (dir === 'left')  ctx.fillRect(x + i + ox, y - i + oy, 1, 1 + 2 * i);
+          if (dir === 'right') ctx.fillRect(x + (2 - i) + ox, y - (i) + oy, 1, 1 + 2 * i);
+        }
+      }
+    };
+    if (cam.x > b.x0 + 2)               tri(3 + nudge, 120, 'left');
+    if (cam.x < b.x1 - SCREEN_W - 2)    tri(250 - nudge, 120, 'right');
+    if (cam.y > b.y0 + 2)               tri(128, 24 + nudge, 'up');
+    if (cam.y < b.y1 - SCREEN_H - 2)    tri(128, 214 - nudge, 'down');
+  },
+  drawEmpty() {
+    rect(0, 0, SCREEN_W, SCREEN_H, C.dkgrey);
+    drawText('NO WORLDS YET', 128, 56, C.yellow, 2, 'center');
+    drawText('THIS ENGINE IS EMPTY ON PURPOSE.', 128, 94, C.white, 1, 'center');
+    drawText('OPEN INDEX.HTML AND READ', 128, 114, C.white, 1, 'center');
+    drawText('SECTION 5: LEVELS', 128, 130, C.cyan, 1, 'center');
+    drawText('SECTION 7: WORLD MAP', 128, 142, C.cyan, 1, 'center');
+    if (blink()) drawText('PRESS ENTER', 128, 190, C.grey, 1, 'center');
+  },
+  drawNode(n) {
+    const x = n.x, y = n.y, unlocked = nodeUnlocked(n);
+    if (n.type === 'level') {
+      const cleared = Save.cleared[n.level];
+      rect(x - 9, y - 9, 18, 18, C.black);
+      rect(x - 8, y - 8, 16, 16, !unlocked ? C.dkgrey : cleared ? C.green : C.red);
+      rect(x - 8, y - 8, 16, 2, !unlocked ? C.grey : cleared ? C.cyan : C.orange);
+      drawText(unlocked ? n.level : '?', x, y - 2, C.white, 1, 'center');
+      const best = Save.best[n.level] || 0;                                   // mini stars underneath
+      if (cleared) for (let i = 0; i < 3; i++) drawStar(x - 14 + i * 10, y + 11, starKind(best, i), 1);
+      if (Save.secret[n.level]) drawText('%', x - 15, y - 14, C.white, 1);          // secret exit found here
+    } else if (n.type === 'warp') {
+      rect(x - 9, y - 9, 18, 18, C.black); rect(x - 8, y - 6, 16, 14, C.green); rect(x - 10, y - 10, 20, 6, C.green);
+      rect(x - 10, y - 10, 20, 1, C.cyan); rect(x - 6, y - 4, 12, 4, C.black); rect(x - 10, y - 5, 20, 1, C.dkgreen);
+      if (!unlocked) rect(x - 10, y - 10, 20, 19, C.dkgrey);
+    } else if (n.type === 'goal') {
+      rect(x - 10, y - 8, 20, 18, C.black); rect(x - 9, y - 7, 18, 16, unlocked ? C.grey : C.dkgrey);
+      for (let i = 0; i < 4; i++) rect(x - 9 + i * 6, y - 11, 4, 4, unlocked ? C.grey : C.dkgrey);
+      rect(x - 3, y, 6, 9, C.black); rect(x - 1, y - 18, 1, 9, C.white); rect(x, y - 18, 6, 4, C.red);
+    } else {
+      rect(x - 4, y - 4, 8, 8, C.black); rect(x - 3, y - 3, 6, 6, C.yellow);
+    }
+  }
+};
+
+/* ---- LEVEL GAMEPLAY ----------------------------------------------------------
+   Phases:  enter (door opens) -> play -> exit (gate reached) or dead          */
+const Camera = { x: 0 };
+
+STATES.level = {
+  enter(levelId) {
+    this.def = LEVEL_BY_ID[levelId];
+    this.level = parseLevel(this.def);
+    this.restart();
+  },
+  restart() {
+    const L = this.level;
+    this.phase = 'enter'; this.phaseT = 0; this.exitCalled = false; this.exitOK = false;
+    this.usedExit = null; this.usedSecret = false;       // which gate the player walked into
+    this.collected = 0;
+    L.coins.forEach(c => c.got = false);
+    this.enemies = L.enemies.map(s => ({ x: s.col * TILE + 1, y: (s.row + 1) * TILE - 14, w: 14, h: 14,
+                                         vx: -0.5, vy: 0, alive: true, deadT: 0, onGround: false }));
+    this.particles = [];
+    Player.colorIdx = Save.color; Player.faceIdx = Save.face;
+    resetPlayer(L);
+    Camera.x = this.camTarget();
+  },
+  total() { return this.level.coins.length; },
+  pct()   { return this.total() ? Math.floor(this.collected / this.total() * 100) : 100; },
+  camTarget() {
+    return clamp(Math.round(Player.x + Player.w / 2 - SCREEN_W / 2), 0, this.level.w * TILE - SCREEN_W);
+  },
+  kill() {
+    this.phase = 'dead'; this.phaseT = 0;
+    Player.vy = -4.5; Game.deaths++;
+    spawnBurst(this.particles, Player.x + 7, Player.y + 7, PLAYER_COLORS[Save.color][0], 14, 2.5, 30);
+    Sfx.die();
+  },
+  update() {
+    const L = this.level, p = Player;
+    this.phaseT++;
+    updateParticles(this.particles);
+
+    if (this.phase === 'enter') {
+      if (this.phaseT > 30) { this.phase = 'play'; this.phaseT = 0; }
+      return;
+    }
+
+    if (this.phase === 'dead') {
+      p.vy = Math.min(p.vy + 0.3, 6); p.y += p.vy;                  // the square tumbles off the screen
+      if (this.phaseT > 70 && !this.exitCalled) { this.exitCalled = true; fadeTo(() => this.restart()); }
+      return;
+    }
+
+    if (this.phase === 'exit') {
+      if (this.exitOK) {
+        if (this.phaseT > 45 && !this.exitCalled) {
+          this.exitCalled = true;
+          const info = { levelId: L.id, name: L.name, collected: this.collected, total: this.total(), secret: this.usedSecret };
+          fadeTo(() => changeState('tally', info));
+        }
+      } else if (this.phaseT > 100 && !this.exitCalled) {            // red flash is over -> back to the map
+        this.exitCalled = true;
+        fadeTo(() => changeState('map'));
+      }
+      return;
+    }
+
+    // ---- phase 'play' ----
+    if (Input.pressed('back')) { fadeTo(() => changeState('map')); return; }
+
+    updatePlayer(L);
+    for (const e of this.enemies) updateEnemy(e, L);
+
+    // coins
+    for (const c of L.coins) {
+      if (c.got) continue;
+      if (aabb(p.x, p.y, p.w, p.h, c.col * TILE + 3, c.row * TILE + 3, 10, 10)) {
+        c.got = true; this.collected++; Sfx.coin();
+        spawnBurst(this.particles, c.col * TILE + 8, c.row * TILE + 8, C.yellow, 6, 1.5, 18);
+      }
+    }
+
+    // enemies: stomp from above to defeat, touch from the side to die
+    for (const e of this.enemies) {
+      if (!e.alive || !aabb(p.x, p.y, p.w, p.h, e.x, e.y, e.w, e.h)) continue;
+      if (p.vy > 0 && p.y + p.h < e.y + e.h * 0.6) {
+        e.alive = false; e.deadT = 24;
+        p.vy = Input.down('jump') ? -PHYS.STOMP_BOUNCE_HELD : -PHYS.STOMP_BOUNCE;
+        p.onGround = false; Sfx.stomp();
+        spawnBurst(this.particles, e.x + 7, e.y + 10, C.purple, 8, 1.8, 20);
+      } else { this.kill(); return; }
+    }
+
+    if (touchesHazard(L, p) || p.y > L.h * TILE) { this.kill(); return; }
+
+    // the exit gates: the normal one (E) and any secret ones (%) - both follow the same coin rule
+    const gates = [{ g: L.exit, secret: false }].concat(L.secretExits.map(g => ({ g, secret: true })));
+    for (const gate of gates) {
+      const gx = gate.g.col * TILE + 2, gy = (gate.g.row + 1) * TILE - 28;
+      if (!aabb(p.x, p.y, p.w, p.h, gx, gy, 12, 28)) continue;
+      this.phase = 'exit'; this.phaseT = 0;
+      this.usedExit = gate.g; this.usedSecret = gate.secret;
+      this.exitOK = this.total() === 0 || this.collected / this.total() >= CLEAR_PERCENT / 100 - 1e-9;
+      if (this.exitOK) Sfx.star(); else Sfx.fail();      // under 40% -> the gate flashes red
+      break;
+    }
+
+    Camera.x += (this.camTarget() - Camera.x) * 0.2;      // smooth camera
+  },
+  draw() {
+    const L = this.level, p = Player, camX = Math.round(Camera.x);
+    drawBackground(L.theme, camX);
+
+    // --- tiles (only the ones on screen) ---
+    const sheet = SHEETS[L.theme];
+    const c0 = Math.max(0, Math.floor(camX / TILE)), c1 = Math.min(L.w - 1, c0 + 17);
+    for (let r = 0; r < L.h; r++) for (let c = c0; c <= c1; c++) {
+      const ch = L.grid[r][c];
+      if (ch === '.') continue;
+      const px = c * TILE - camX, py = r * TILE;
+      if (ch === '#') {
+        const v = L.variant[r][c];
+        ctx.drawImage(sheet.ground[v.mask], px, py);
+        if (v.diag & D_TL) rect(px, py, 3, 3, C.topDark);            // inside-corner notches
+        if (v.diag & D_TR) rect(px + 13, py, 3, 3, C.topDark);
+        if (v.diag & D_BR) rect(px + 13, py + 13, 3, 3, THEMES[L.theme].edge);
+        if (v.diag & D_BL) rect(px, py + 13, 3, 3, THEMES[L.theme].edge);
+      } else if (ch === 'B') ctx.drawImage(sheet.brick, px, py);
+        else if (ch === '-') ctx.drawImage(sheet.platform[L.variant[r][c]], px, py);
+        else if (ch === '^') ctx.drawImage(sheet.spikes, px, py);
+        else if (ch === 'v') ctx.drawImage(sheet.ceilingSpikes, px, py);
+    }
+
+    // --- gates ---
+    const s = L.start, ex = L.exit;
+    drawGate(s.col * TILE - camX, (s.row + 1) * TILE, 'entry', this.phase === 'enter' ? 'open' : 'closed');
+    // only the gate the player actually walked into flashes gold (cleared) or red (not enough coins)
+    const gateState = g => (this.phase === 'exit' && this.usedExit === g) ? (this.exitOK ? 'gold' : 'red') : 'closed';
+    drawGate(ex.col * TILE - camX, (ex.row + 1) * TILE, 'exit', gateState(ex));
+    for (const sg of L.secretExits) drawGate(sg.col * TILE - camX, (sg.row + 1) * TILE, 'secret', gateState(sg));
+
+    // --- coins, enemies, player ---
+    for (const c of L.coins) if (!c.got) drawCoinSprite(c.col * TILE + 8 - camX, c.row * TILE + 8, c.col);
+    for (const e of this.enemies) if (e.alive || e.deadT > 0) drawEnemySprite(e, camX);
+    const hidePlayer = this.phase === 'exit' && this.exitOK && this.phaseT > 12;
+    if (!hidePlayer && !(this.phase === 'dead' && this.phaseT < 2)) {
+      drawPlayerSprite(p.x - camX, p.y, p.w, p.h, Save.color, Save.face, p.facing, p.sx, p.sy);
+    }
+    drawParticles(this.particles, camX);
+
+    // --- HUD: coin count, percentage, progress bar with star marks ---
+    ctx.globalAlpha = 0.65; rect(0, 0, SCREEN_W, 21, C.black); ctx.globalAlpha = 1;
+    rect(6, 3, 6, 7, C.gold); rect(7, 4, 4, 5, C.yellow);
+    drawText(this.collected + '/' + this.total(), 16, 4, C.white, 1);
+    drawText(this.pct() + '%', 128, 4, this.pct() >= CLEAR_PERCENT ? C.yellow : C.white, 1, 'center');
+    drawText(L.id, 250, 4, C.white, 1, 'right');
+    rect(5, 13, 102, 6, C.black); rect(6, 14, 100, 4, C.dkgrey);
+    rect(6, 14, Math.min(100, this.pct()), 4, this.pct() >= 100 ? C.yellow : C.green);
+    rect(6 + CLEAR_PERCENT, 12, 1, 8, C.red);                          // the 40% line
+    for (const st of STAR_STEPS) rect(6 + st, 13, 1, 6, C.white);       // star marks
+    drawText('NEED ' + CLEAR_PERCENT + '%', 112, 14, C.grey, 1);
+
+    // --- messages ---
+    if (this.phase === 'enter' || (this.phase === 'play' && this.phaseT < 60)) {
+      drawText(L.id + ' ' + L.name, 128, 90, C.white, 2, 'center');
+    }
+    if (this.phase === 'exit' && !this.exitOK) {
+      drawText('NEED ' + CLEAR_PERCENT + '% COINS!', 128, 90, C.red, 2, 'center');
+      drawText('TRY AGAIN', 128, 112, C.white, 1, 'center');
+    }
+  },
+  drawDebug() {
+    const L = this.level, p = Player, camX = Math.round(Camera.x);
+    const box = (x, y, w, h, col) => { rect(x, y, w, 1, col); rect(x, y + h - 1, w, 1, col); rect(x, y, 1, h, col); rect(x + w - 1, y, 1, h, col); };
+    const pc = Math.floor(p.x / TILE), pr = Math.floor(p.y / TILE);
+    ctx.globalAlpha = 0.6;
+    for (let r = pr - 3; r <= pr + 3; r++) for (let c = pc - 4; c <= pc + 4; c++) {   // solid tiles near the player
+      if (isSolid(tileAt(L, c, r)) && c >= 0 && c < L.w && r >= 0 && r < L.h) box(c * TILE - camX, r * TILE, TILE, TILE, C.cyan);
+    }
+    ctx.globalAlpha = 1;
+    for (const c of L.coins) if (!c.got) box(c.col * TILE + 3 - camX, c.row * TILE + 3, 10, 10, C.yellow);
+    for (const e of this.enemies) if (e.alive) box(Math.round(e.x) - camX, Math.round(e.y), e.w, e.h, C.red);
+    box(L.exit.col * TILE + 2 - camX, (L.exit.row + 1) * TILE - 28, 12, 28, C.purple);
+    for (const sg of L.secretExits) box(sg.col * TILE + 2 - camX, (sg.row + 1) * TILE - 28, 12, 28, C.orange);
+    box(Math.round(p.x) - camX, Math.round(p.y), p.w, p.h, C.green);               // player hitbox
+    const lines = [
+      'X ' + p.x.toFixed(2) + '  Y ' + p.y.toFixed(2),
+      'VX ' + p.vx.toFixed(2) + '  VY ' + p.vy.toFixed(2),
+      'GROUND ' + (p.onGround ? 'YES' : 'NO') + '  WALL ' + p.wallSide + '  LOCK ' + p.edgeLock,
+      'COINS ' + this.collected + '/' + this.total() + '  ' + this.pct() + '%',
+      'PHASE ' + this.phase + '  DEATHS ' + Game.deaths
+    ];
+    lines.forEach((t, i) => drawText(t, 4, 26 + i * 7, C.yellow, 1));
+  }
+};
+
+/* ---- POST-LEVEL TALLY ----------------------------------------------------------
+   Coins count DOWN like a timer while the percentage counts UP. Stars light
+   up silver when the percentage passes 60/80/90 - and ALL turn gold at 100%. */
+STATES.tally = {
+  enter(info) {
+    this.info = info;
+    this.remaining = info.collected; this.shown = 0; this.acc = 0; this.t = 0;
+    this.done = false; this.doneT = 0; this.lastStars = 0; this.confetti = [];
+    const hiddenBefore = countHiddenNodes();                          // to spot newly revealed secrets
+    const pct = info.total ? Math.floor(info.collected / info.total * 100) : 100;
+    Save.cleared[info.levelId] = true;                              // unlocks the next map nodes
+    Save.best[info.levelId] = Math.max(Save.best[info.levelId] || 0, pct);
+    if (info.secret) Save.secret[info.levelId] = true;               // remember the secret exit was found
+    Save.store();
+    this.secretMsg = countHiddenNodes() < hiddenBefore ? 'A SECRET PATH APPEARED!' : '';
+  },
+  pct() { return this.info.total ? Math.floor(this.shown / this.info.total * 100) : 100; },
+  update() {
+    this.t++;
+    updateParticles(this.confetti);
+    if (!this.done) {
+      if (Input.pressed('start') || Input.pressed('jump')) { this.shown = this.info.collected; this.remaining = 0; }   // skip
+      else if (this.t > 30) {
+        this.acc += Math.max(0.15, this.info.collected / 150);          // whole animation takes ~2.5 seconds
+        while (this.acc >= 1 && this.remaining > 0) { this.acc -= 1; this.remaining--; this.shown++; if (this.shown % 2 === 0) Sfx.tick(); }
+      }
+      const lit = [0, 1, 2].filter(i => starKind(this.pct(), i) > 0).length;
+      if (lit > this.lastStars) { this.lastStars = lit; Sfx.star(); }
+      if (this.remaining <= 0 && this.t > 30) {
+        this.done = true; this.doneT = 0;
+        if (this.pct() >= 100) for (let i = 0; i < 4; i++) spawnBurst(this.confetti, 128, 150, [C.yellow, C.cyan, C.red, C.green][i], 18, 3, 50);
+      }
+    } else {
+      this.doneT++;
+      if (this.pct() >= 100 && this.doneT % 25 === 0) spawnBurst(this.confetti, 60 + Math.random() * 140, 120, [C.yellow, C.white, C.orange][this.doneT % 3], 10, 2, 40);
+      if (this.doneT > 20 && (Input.pressed('start') || Input.pressed('jump'))) {
+        const msg = this.secretMsg;
+        fadeTo(() => changeState('map', { message: msg }));
+      }
+    }
+  },
+  draw() {
+    rect(0, 0, SCREEN_W, SCREEN_H, C.black);
+    for (let y = 0; y < SCREEN_H; y += 16) for (let x = (y / 16 % 2) * 16; x < SCREEN_W; x += 32) rect(x, y, 16, 16, C.dkgrey === C.black ? C.black : '#16162a');
+    rect(14, 14, 228, 212, C.dkgrey); rect(16, 16, 224, 208, C.black);
+    drawText(this.info.secret ? 'SECRET EXIT!' : 'LEVEL CLEAR!', 128, 26, this.info.secret ? C.cyan : C.yellow, 2, 'center');
+    drawText(this.info.levelId + ' ' + this.info.name, 128, 46, C.white, 1, 'center');
+    // coin timer counting DOWN
+    rect(78, 66, 8, 10, C.gold); rect(79, 67, 6, 8, C.yellow); rect(80, 68, 1, 3, C.white);
+    drawText('COINS LEFT ' + this.remaining, 94, 68, C.white, 1);
+    drawText('OF ' + this.info.total, 94, 78, C.grey, 1);
+    // percentage counting UP
+    const pct = this.pct();
+    drawText(pct + '%', 128, 94, pct >= 100 ? C.yellow : C.white, 5, 'center');
+    // the three stars
+    for (let i = 0; i < 3; i++) {
+      const bounce = (this.done && starKind(pct, i) === 2) ? Math.round(Math.sin(this.doneT / 6 + i) * 2) : 0;
+      drawStar(70 + i * 46, 138 + bounce, starKind(pct, i), 3);
+      drawText(STAR_STEPS[i] + '%', 83 + i * 46, 170, starKind(pct, i) ? C.white : C.grey, 1, 'center');
+    }
+    drawText(this.done ? (pct >= 100 ? 'PERFECT! GOLD STARS!' : (pct >= STAR_STEPS[0] ? 'NICE COLLECTING!' : 'CLEARED!')) : 'COUNTING...', 128, 186, pct >= 100 ? C.yellow : C.white, 1, 'center');
+    drawText('BEST ' + Math.max(Save.best[this.info.levelId] || 0, 0) + '%', 128, 198, C.grey, 1, 'center');
+    if (this.done && blink()) drawText('PRESS ENTER', 128, 210, C.cyan, 1, 'center');
+    drawParticles(this.confetti);
+  }
+};
+
+
+/* =========================================================================
+   8. MAIN LOOP
+   -------------------------------------------------------------------------
+   Logic runs in fixed 1/60 second steps (so physics is identical on every
+   computer); drawing happens once per screen refresh.
+   ========================================================================= */
+
+function update() {
+  Game.tick++;
+  if (Input.pressed('debug')) Game.debug = !Game.debug;
+  if (Input.pressed('mute'))  Sfx.mute = !Sfx.mute;
+  if (!updateFade()) Game.state.update();
+}
+
+function draw() {
+  ctx.imageSmoothingEnabled = false;
+  Game.state.draw();
+  drawFade();
+  if (Game.debug) {
+    if (Game.state.drawDebug) Game.state.drawDebug();
+    rect(0, 232, 120, 8, C.black);
+    drawText('DEBUG  ' + Game.name.toUpperCase() + '  ' + Math.round(Game.fps) + 'FPS', 2, 233, C.green, 1);
+  }
+}
+
+// Resize the canvas to the biggest WHOLE-NUMBER scale that fits the window.
+function resize() {
+  const scale = Math.max(1, Math.floor(Math.min(window.innerWidth / SCREEN_W, window.innerHeight / SCREEN_H)));
+  canvas.style.width  = Math.round(SCREEN_W * scale * (STRETCH_TO_4_3 ? 8 / 7 : 1)) + 'px';
+  canvas.style.height = (SCREEN_H * scale) + 'px';
+}
+
+let lastTime = 0, accumulator = 0, fpsFrames = 0, fpsTime = 0;
+function frame(now) {
+  accumulator += Math.min(now - lastTime, 100);      // clamp so a background tab can't cause a huge catch-up
+  lastTime = now;
+  while (accumulator >= STEP_MS) { update(); Input.endFrame(); accumulator -= STEP_MS; }
+  draw();
+  fpsFrames++;
+  if (now - fpsTime >= 500) { Game.fps = fpsFrames * 1000 / (now - fpsTime); fpsFrames = 0; fpsTime = now; }
+  requestAnimationFrame(frame);
+}
+
+function init() {
+  canvas = document.getElementById('game');
+  ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  Input.init();
+  buildSheets();
+  Save.load();
+  applyControls(Save.controls);                      // arrows or WASD, whichever was saved
+  window.addEventListener('resize', resize);
+  resize();
+  changeState('title');
+  lastTime = fpsTime = performance.now();
+  requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>
