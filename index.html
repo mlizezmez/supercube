@@ -17,7 +17,7 @@
 <script>
 'use strict';
 /* =========================================================================
-   SQUARE QUEST  -  a tiny NES-style platformer in ONE file
+   SUPERCUBE  -  a tiny NES-style platformer in ONE file
    -------------------------------------------------------------------------
    CONTROLS
      Arrow keys ..... move            Space / Z / Up ... jump (hold = higher)
@@ -87,7 +87,7 @@ const C = {
 // ---- Physics (all values are "pixels per frame" at 60 fps) ---------------
 // Tweak these to change how the square feels! Bigger = stronger.
 const PHYS = {
-  WALK_ACCEL: 0.045,    // speed gained per frame when walking
+  WALK_ACCEL: 0.050,    // speed gained per frame when walking
   RUN_ACCEL:  0.070,    // ...when holding the run button
   MAX_WALK:   1.5,      // top walking speed
   MAX_RUN:    2.5,      // top running speed
@@ -666,64 +666,7 @@ function drawBackground(theme, camX) {
   }
 }
 
-
-/* =========================================================================
-   5. LEVEL DATA  -  HOW TO MAKE A LEVEL FROM SCRATCH
-   -------------------------------------------------------------------------
-   A level is one object in the LEVELS list below:
-
-     { id: '1-1', name: 'GREEN MEADOW', theme: 'day', rows: [ "....", "...." ] }
-
-     id     unique text label. Shown in the HUD; a map node points at it
-            (a node says  level: '1-1').
-     name   shown when the level starts and on the map. Use CAPITALS, 0-9 and
-            the symbols  . : ! % / - + ' ? , > <  (all the pixel font has).
-     theme  'day' (grass + hills), 'cave' (purple + crystals), 'castle' (stone + lava)
-            or 'sky' (open sky with clouds only - ground and platforms look like clouds).
-            An unknown theme name falls back to 'day' and warns in the console.
-     rows   the level itself: one text string per tile row, like a picture.
-
-   STEP BY STEP
-     1. Pick a width. Rows can be as long as you like (at least 16 tiles,
-        64-200 is typical). Short rows are padded with '.' on the right.
-     2. A level is 15 rows tall (one screen). If you write fewer rows, the
-        missing ones are added at the TOP - so you only need to write the
-        interesting bottom part (the last 6 rows is enough for a flat level).
-     3. Draw the floor with '#'. The auto-tiler adds grass, edges and corners
-        for you, so never draw those by hand. Leave gaps in the floor for
-        pits (falling out of the bottom = death).
-     4. Place exactly ONE 'S' (start) and ONE 'E' (exit). Each marks the BOTTOM
-        of its door, so put it in the row directly above the floor it stands on,
-        and keep the 2 tiles above it empty (doors are 2 tiles tall).
-     5. Add 'e' enemies and '^' spikes the same way - on the row just above the
-        floor. Scatter 'o' coins anywhere (high ones make players jump).
-        Enemies on a thin platform ('-') walk off its ends and fall.
-     5b. Optional SECRET EXIT: put a '%' in the same way as 'E' (bottom of the door,
-        2 empty tiles above). Hide it somewhere hard to reach! Reaching it clears the
-        level just like E (same coin rule) and also marks the level "secret found",
-        which can reveal hidden map nodes (see 'secretExit' in section 7). You can
-        place more than one '%'.
-     6. Use 'B' for solid bricks and '-' for thin platforms (jump up through
-        them; Down + Jump drops through).
-     7. Add the object to LEVELS (copy the example), then give it a node on the
-        world map in section 7 so players can reach it.
-
-   LEGEND
-     .  empty air                 #  solid ground (auto-tiled!)
-     B  brick block (solid)       -  thin platform
-     ^  spikes (deadly)           o  coin
-     e  walking enemy             S  start / entry gate
-     E  exit gate                 %  SECRET exit gate (optional)
-     (a space counts as '.')
-
-   DESIGN TIPS
-     - A normal jump clears ~4 tiles up and ~6 tiles across (running goes further).
-       Keep pits <= 5 tiles wide and ledges <= 3 tiles high for walking jumps.
-     - Players need CLEAR_PERCENT % of the coins to clear a level, and earn stars at
-       STAR_STEPS %, so put in enough coins (20-60 is a good range). 0 coins = free clear.
-     - Enemies turn around at walls, solid-ground ledges and spikes, but walk
-       straight off the end of a thin platform.
-   ========================================================================= */
+// 5 - Level Data
 
 const LEVELS = [
     { id: '1-1', name: 'FIRST STEPS', theme: 'day', rows: [
