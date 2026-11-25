@@ -1,22 +1,99 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="Square Quest - an 8-bit NES-style platformer in a single HTML file.">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Square Quest - an 8-bit platformer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%23d82800'/%3E%3Crect x='3' y='5' width='3' height='4' fill='%23fff'/%3E%3Crect x='9' y='5' width='3' height='4' fill='%23fff'/%3E%3Crect x='4' y='6' width='2' height='2'/%3E%3Crect x='10' y='6' width='2' height='2'/%3E%3C/svg%3E">
 <style>
   /* The page is just a black background with the canvas centred in it. */
-  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  body { display: flex; align-items: center; justify-content: center; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  @supports (height: 100dvh) { html, body { height: 100dvh; } }   /* phones: ignore the collapsing address bar */
+  body { display: flex; align-items: center; justify-content: center;
+         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   /* "pixelated" keeps the big scaled-up pixels crisp instead of blurry. */
-  canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #000; touch-action: none; }
+
+  /* ---- ON-SCREEN TOUCH CONTROLS --------------------------------------------
+     Hidden on computers. The game adds class "touch" to <body> on touch screens
+     (see section 3b in the script). Colours here are plain CSS - tweak freely. */
+  #touch { display: none; touch-action: none; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  body.touch #touch { display: block; }
+  #touch > * { position: absolute; }
+  #touch button { font: inherit; font-weight: bold; color: #fff; margin: 0; padding: 0; cursor: default; touch-action: none; outline: none; }
+  .pill  { height: 34px; min-width: 64px; padding: 0 12px; border-radius: 17px; font-size: 13px; letter-spacing: 1px;
+           border: 2px solid rgba(255,255,255,.6); background: rgba(70,70,105,.75); }
+  .round { width: var(--btn); height: var(--btn); border-radius: 50%; font-size: 26px;
+           border: 3px solid rgba(0,0,0,.65); box-shadow: inset 0 -6px 0 rgba(0,0,0,.28); }
+  .round.a { background: rgba(216,40,0,.8); }
+  .round.b { background: rgba(252,116,72,.8); }
+  .pill.on, .round.on { filter: brightness(1.7); transform: scale(.94); }
+  #sys  { display: flex; gap: 8px; }
+  #menu { display: none; gap: 8px; }                              /* COLOR / FACE: title screen only */
+  body[data-screen="title"] #menu { display: flex; }
+  #ab   { display: flex; gap: 12px; align-items: flex-end; }
+  #ab .a { margin-bottom: calc(var(--btn) * .35); }               /* A sits a little higher, like a gamepad */
+
+  /* the D-pad: a plus-shaped pad with an arrow in each arm */
+  #dpad { width: var(--pad); height: var(--pad); background: rgba(70,70,105,.75); touch-action: none;
+          clip-path: polygon(33% 0, 67% 0, 67% 33%, 100% 33%, 100% 67%, 67% 67%, 67% 100%, 33% 100%, 33% 67%, 0 67%, 0 33%, 33% 33%); }
+  #dpad i { position: absolute; width: 0; height: 0; border: 9px solid transparent; }
+  #dpad .u { left: calc(50% - 9px); top: 5%;    border-top-width: 0;    border-bottom-color: rgba(255,255,255,.75); }
+  #dpad .d { left: calc(50% - 9px); bottom: 5%; border-bottom-width: 0; border-top-color:    rgba(255,255,255,.75); }
+  #dpad .l { top: calc(50% - 9px);  left: 5%;   border-left-width: 0;   border-right-color:  rgba(255,255,255,.75); }
+  #dpad .r { top: calc(50% - 9px);  right: 5%;  border-right-width: 0;  border-left-color:   rgba(255,255,255,.75); }
+  #dpad.held-up .u    { border-bottom-color: #fcd83c; }
+  #dpad.held-down .d  { border-top-color:    #fcd83c; }
+  #dpad.held-left .l  { border-right-color:  #fcd83c; }
+  #dpad.held-right .r { border-left-color:   #fcd83c; }
+
+  /* PORTRAIT: the game sits on top, the buttons underneath. */
+  body.touch.portrait { flex-direction: column; justify-content: flex-start; }
+  body.touch.portrait #touch { position: relative; flex: 1 1 auto; width: 100%; --pad: min(38vw, 150px); --btn: min(18vw, 70px); }
+  body.touch.portrait #sys  { top: 8px;  left: 50%; transform: translateX(-50%); }
+  body.touch.portrait #menu { top: 50px; left: 50%; transform: translateX(-50%); }
+  body.touch.portrait #dpad { left: calc(env(safe-area-inset-left) + 14px);  bottom: calc(env(safe-area-inset-bottom) + 18px); }
+  body.touch.portrait #ab   { right: calc(env(safe-area-inset-right) + 14px); bottom: calc(env(safe-area-inset-bottom) + 18px); }
+
+  /* LANDSCAPE: the game fills the height and the buttons float over the black side bars. */
+  body.touch.landscape #touch { position: fixed; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; --pad: min(46vh, 170px); --btn: min(22vh, 76px); }
+  body.touch.landscape #touch > * { pointer-events: auto; }
+  body.touch.landscape #sys  { right: calc(env(safe-area-inset-right) + 12px); top: calc(env(safe-area-inset-top) + 10px); flex-direction: column; }
+  body.touch.landscape #menu { left: calc(env(safe-area-inset-left) + 12px);   top: calc(env(safe-area-inset-top) + 10px); flex-direction: column; }
+  body.touch.landscape #dpad { left: calc(env(safe-area-inset-left) + 16px);  bottom: calc(env(safe-area-inset-bottom) + 14px); }
+  body.touch.landscape #ab   { right: calc(env(safe-area-inset-right) + 16px); bottom: calc(env(safe-area-inset-bottom) + 14px); }
 </style>
 </head>
 <body>
 <canvas id="game" width="256" height="240"></canvas>
 
+<!-- On-screen touch controls. Each data-act is the game "action" the button triggers
+     (several can be listed, separated by commas). See section 3b in the script. -->
+<div id="touch" aria-hidden="true">
+  <div id="dpad"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i></div>
+  <div id="sys">
+    <button class="pill" data-act="back">BACK</button>
+    <button class="pill" data-act="mute">MUTE</button>
+    <button class="pill" data-act="start">START</button>
+  </div>
+  <div id="menu">
+    <button class="pill" data-act="color">COLOR</button>
+    <button class="pill" data-act="face">FACE</button>
+  </div>
+  <div id="ab">
+    <button class="round b" data-act="run">B</button>
+    <button class="round a" data-act="jump,confirm">A</button>
+  </div>
+</div>
+
 <script>
 'use strict';
 /* =========================================================================
-   SUPERCUBE  -  a tiny NES-style platformer in ONE file
+   SQUARE QUEST  -  a tiny NES-style platformer in ONE file
    -------------------------------------------------------------------------
    CONTROLS
      Arrow keys ..... move            Space / Z / Up ... jump (hold = higher)
@@ -28,11 +105,13 @@
      C / F .......... change colour / face (title screen)
      T .............. swap Arrows <-> WASD (title screen)
      R .............. reset save (title screen)
+     TOUCH SCREENS .. on-screen D-pad, A (jump / confirm), B (run), BACK, MUTE and START
+                      appear automatically on phones and tablets (see section 3b)
 
    FILE LAYOUT  (search for the "=====" banners)
      1. CONSTANTS            numbers you can tweak: physics, colours, rules
      2. HELPERS              tiny utilities, pixel font, sound, save data
-     3. INPUT HANDLER        keyboard -> "actions" like 'jump'
+     3. INPUT HANDLER        keyboard + touch buttons -> "actions" like 'jump'
      4. ASSET / TILE RENDERER  sprites drawn with code + the AUTO-TILER
      5. LEVEL DATA           ASCII-art levels + the parser
      6. PHYSICS & COLLISION  movement, wall edge-lock, enemies
@@ -40,12 +119,13 @@
      8. MAIN LOOP            fixed 60 fps update + draw
    ========================================================================= */
 
-/* QUICK START - MAKING YOUR OWN GAME WITH THIS EMPTY ENGINE
-   This file ships with NO levels and NO world map. You build them in two places:
+/* QUICK START - EDITING THE GAME
+   Everything you will want to change lives in two places:
      Section 5  ->  const LEVELS = [ ... ]   draw each stage as text art
      Section 7  ->  const WORLDS = [ ... ]   place the stages on a scrolling map
    Each section starts with a full step-by-step guide and a copy-paste example.
-   Until you add a world, the map screen just shows a "NO WORLDS YET" notice.
+   (If WORLDS is left empty the map screen shows a "NO WORLDS YET" notice, so this
+   file also works as an empty engine to build a brand-new game on.)
    Typos (unknown ids, missing start/exit) are reported in the browser console (F12). */
 
 
@@ -86,7 +166,7 @@ const C = {
 // ---- Physics (all values are "pixels per frame" at 60 fps) ---------------
 // Tweak these to change how the square feels! Bigger = stronger.
 const PHYS = {
-  WALK_ACCEL: 0.050,    // speed gained per frame when walking
+  WALK_ACCEL: 0.045,    // speed gained per frame when walking
   RUN_ACCEL:  0.070,    // ...when holding the run button
   MAX_WALK:   1.5,      // top walking speed
   MAX_RUN:    2.5,      // top running speed
@@ -180,6 +260,13 @@ function drawText(str, x, y, color = C.white, scale = 1, align = 'left', shadow 
 // ---- Sound effects (simple square-wave beeps, no audio files needed) -----
 const Sfx = {
   ac: null, mute: false,
+  // Browsers keep sound off until the player taps or presses something, so we wake it up then.
+  unlock() {
+    try {
+      if (!this.ac) this.ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ac.state === 'suspended') this.ac.resume();
+    } catch (e) { /* audio is optional - ignore errors */ }
+  },
   beep(freq, dur, type = 'square', slide = 0, vol = 0.05, delay = 0) {
     if (this.mute) return;
     try {
@@ -295,6 +382,7 @@ function applyControls(name) {
 const Input = {
   codes: new Set(),          // keys currently held
   pressedNow: new Set(),     // actions pressed since the last update
+  virtual: new Set(),        // actions held by on-screen touch buttons (section 3b)
   init() {
     window.addEventListener('keydown', e => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;       // keep browser shortcuts working
@@ -307,12 +395,119 @@ const Input = {
       this.codes.add(e.code);
     });
     window.addEventListener('keyup',  e => this.codes.delete(e.code));
-    window.addEventListener('blur',   () => this.codes.clear());
+    window.addEventListener('blur',   () => { this.codes.clear(); this.virtual.clear(); Touch.releaseAll(); });
+    // Wake the sound up on the first key press / tap (and keep trying until the browser allows it).
+    const wake = () => {
+      Sfx.unlock();
+      if (Sfx.ac && Sfx.ac.state === 'running') for (const ev of WAKE_EVENTS) window.removeEventListener(ev, wake);
+    };
+    const WAKE_EVENTS = ['keydown', 'pointerup', 'touchend', 'click'];
+    for (const ev of WAKE_EVENTS) window.addEventListener(ev, wake);
   },
-  down(action)    { return KEYMAP[action].some(c => this.codes.has(c)); },
+  // A touch button went down / came up. Works exactly like a key press / release.
+  vpress(action)   { this.virtual.add(action); this.pressedNow.add(action); },
+  vrelease(action) { this.virtual.delete(action); },
+  down(action)    { return KEYMAP[action].some(c => this.codes.has(c)) || this.virtual.has(action); },
   pressed(action) { return this.pressedNow.has(action); },
   endFrame()      { this.pressedNow.clear(); }
 };
+
+/* =========================================================================
+   3b. TOUCH CONTROLS  (phones and tablets)
+   -------------------------------------------------------------------------
+   The buttons are ordinary HTML elements (the <div id="touch"> near the top of
+   this file). They stay hidden on computers and appear on touch screens.
+   Touching one does exactly what a key press does: Input.vpress(action) when a
+   finger goes down, Input.vrelease(action) when it lifts. The rest of the game
+   never needs to know whether you play with a keyboard or a thumb.
+
+     D-pad ........... left / right / up / down  (slide your thumb - it follows)
+     A ............... jump AND confirm (menus, world map)
+     B ............... run
+     START / BACK / MUTE ... Enter / Esc / M
+     COLOR / FACE .... only shown on the title screen (same as C / F)
+
+   To change what a button does, edit its data-act="..." in the HTML.
+   ========================================================================= */
+
+const Touch = {
+  enabled: false,
+  dir: null,                 // D-pad direction currently held ('left' ... ) or null
+  dpadEl: null,
+
+  init() {
+    const root = document.getElementById('touch');
+    if (!root) return;                                           // no touch markup = no touch controls
+    this.dpadEl = document.getElementById('dpad');
+    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) this.enable();
+    window.addEventListener('touchstart', () => this.enable(), { once: true, passive: true });   // laptops with touch screens
+    this.bindDpad(this.dpadEl);
+    for (const el of root.querySelectorAll('[data-act]')) this.bindButton(el, el.dataset.act.split(','));
+    document.addEventListener('contextmenu', e => { if (this.enabled) e.preventDefault(); });   // no long-press menu
+    document.addEventListener('gesturestart', e => e.preventDefault());                          // no pinch-zoom (iOS)
+  },
+
+  enable() {
+    if (this.enabled) return;
+    this.enabled = true;
+    document.body.classList.add('touch');
+    resize();
+  },
+
+  // A normal button: press = all of its actions go down, lift = they all come up.
+  bindButton(el, actions) {
+    const press = e => {
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+      el.classList.add('on');
+      for (const a of actions) Input.vpress(a);
+    };
+    const release = () => { el.classList.remove('on'); for (const a of actions) Input.vrelease(a); };
+    el.addEventListener('pointerdown', press);
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('lostpointercapture', release);
+  },
+
+  // The D-pad is one big button: where your thumb sits (relative to the centre) picks the direction.
+  bindDpad(el) {
+    const read = e => {
+      const r = el.getBoundingClientRect();
+      const dx = (e.clientX - r.left) / r.width - 0.5, dy = (e.clientY - r.top) / r.height - 0.5;   // -0.5 .. 0.5
+      if (Math.hypot(dx, dy) < 0.1) return this.setDir(null);                                        // dead zone in the middle
+      this.setDir(Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down'));
+    };
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+      read(e);
+    });
+    el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) read(e); });
+    const end = () => this.setDir(null);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
+  },
+
+  setDir(dir) {
+    if (dir === this.dir) return;
+    if (this.dir) Input.vrelease(this.dir);
+    this.dir = dir;
+    if (dir) Input.vpress(dir);
+    this.dpadEl.className = dir ? 'held-' + dir : '';
+  },
+
+  // Let go of everything (used when the page loses focus so nothing gets stuck).
+  releaseAll() {
+    if (!this.dpadEl) return;
+    this.setDir(null);
+    for (const el of document.querySelectorAll('#touch .on')) el.classList.remove('on');
+  }
+};
+
+// Text hints differ between keyboard and touch ("PRESS ENTER" vs "PRESS START").
+const hintStart   = () => Touch.enabled ? 'PRESS START' : 'PRESS ENTER';
+const hintConfirm = () => Touch.enabled ? 'PRESS A'     : 'PRESS ENTER';
 
 
 /* =========================================================================
@@ -665,7 +860,64 @@ function drawBackground(theme, camX) {
   }
 }
 
-// 5 - Level Data
+
+/* =========================================================================
+   5. LEVEL DATA  -  HOW TO MAKE A LEVEL FROM SCRATCH
+   -------------------------------------------------------------------------
+   A level is one object in the LEVELS list below:
+
+     { id: '1-1', name: 'GREEN MEADOW', theme: 'day', rows: [ "....", "...." ] }
+
+     id     unique text label. Shown in the HUD; a map node points at it
+            (a node says  level: '1-1').
+     name   shown when the level starts and on the map. Use CAPITALS, 0-9 and
+            the symbols  . : ! % / - + ' ? , > <  (all the pixel font has).
+     theme  'day' (grass + hills), 'cave' (purple + crystals), 'castle' (stone + lava)
+            or 'sky' (open sky with clouds only - ground and platforms look like clouds).
+            An unknown theme name falls back to 'day' and warns in the console.
+     rows   the level itself: one text string per tile row, like a picture.
+
+   STEP BY STEP
+     1. Pick a width. Rows can be as long as you like (at least 16 tiles,
+        64-200 is typical). Short rows are padded with '.' on the right.
+     2. A level is 15 rows tall (one screen). If you write fewer rows, the
+        missing ones are added at the TOP - so you only need to write the
+        interesting bottom part (the last 6 rows is enough for a flat level).
+     3. Draw the floor with '#'. The auto-tiler adds grass, edges and corners
+        for you, so never draw those by hand. Leave gaps in the floor for
+        pits (falling out of the bottom = death).
+     4. Place exactly ONE 'S' (start) and ONE 'E' (exit). Each marks the BOTTOM
+        of its door, so put it in the row directly above the floor it stands on,
+        and keep the 2 tiles above it empty (doors are 2 tiles tall).
+     5. Add 'e' enemies and '^' spikes the same way - on the row just above the
+        floor. Scatter 'o' coins anywhere (high ones make players jump).
+        Enemies on a thin platform ('-') walk off its ends and fall.
+     5b. Optional SECRET EXIT: put a '%' in the same way as 'E' (bottom of the door,
+        2 empty tiles above). Hide it somewhere hard to reach! Reaching it clears the
+        level just like E (same coin rule) and also marks the level "secret found",
+        which can reveal hidden map nodes (see 'secretExit' in section 7). You can
+        place more than one '%'.
+     6. Use 'B' for solid bricks and '-' for thin platforms (jump up through
+        them; Down + Jump drops through).
+     7. Add the object to LEVELS (copy the example), then give it a node on the
+        world map in section 7 so players can reach it.
+
+   LEGEND
+     .  empty air                 #  solid ground (auto-tiled!)
+     B  brick block (solid)       -  thin platform
+     ^  spikes (deadly)           o  coin
+     e  walking enemy             S  start / entry gate
+     E  exit gate                 %  SECRET exit gate (optional)
+     (a space counts as '.')
+
+   DESIGN TIPS
+     - A normal jump clears ~4 tiles up and ~6 tiles across (running goes further).
+       Keep pits <= 5 tiles wide and ledges <= 3 tiles high for walking jumps.
+     - Players need CLEAR_PERCENT % of the coins to clear a level, and earn stars at
+       STAR_STEPS %, so put in enough coins (20-60 is a good range). 0 coins = free clear.
+     - Enemies turn around at walls, solid-ground ledges and spikes, but walk
+       straight off the end of a thin platform.
+   ========================================================================= */
 
 const LEVELS = [
     { id: '1-1', name: 'FIRST STEPS', theme: 'day', rows: [
@@ -838,7 +1090,7 @@ const LEVELS = [
         "#########............###########################...................^^^.....",
         "######################################################............#####....",
         "######################################################............#####...."]},
-        
+
 ];
 const LEVEL_BY_ID = {};
 LEVELS.forEach(l => LEVEL_BY_ID[l.id] = l);
@@ -1135,6 +1387,7 @@ const STATES = {};
 
 function changeState(name, args) {
   Game.name = name;
+  document.body.dataset.screen = name;          // lets the CSS show title-only buttons (COLOR / FACE)
   Game.state = STATES[name];
   Game.state.enter(args);
 }
@@ -1171,7 +1424,7 @@ STATES.title = {
     if (Input.pressed('face'))  { Save.face  = (Save.face + 1) % FACE_COUNT; Save.store(); Sfx.step(); }
     if (Input.pressed('controls')) { applyControls(Save.controls === 'wasd' ? 'arrows' : 'wasd'); Save.store(); Sfx.step(); }
     if (Input.pressed('reset')) { Save.reset(); this.msg = 'PROGRESS RESET'; Sfx.fail(); }
-    if (Input.pressed('start')) { Sfx.star(); fadeTo(() => changeState('map')); }
+    if (Input.pressed('start') || Input.pressed('confirm')) { Sfx.star(); fadeTo(() => changeState('map')); }
   },
   draw() {
     drawBackground('day', Game.tick * 0.6);
@@ -1182,11 +1435,19 @@ STATES.title = {
     const bounce = Math.abs(Math.sin(Game.tick / 14)) * 22;
     drawPlayerSprite(121, 194 - bounce, 14, 14, Save.color, Save.face, 1,
                      1 - (bounce < 2 ? 0.1 : 0), 1 + (bounce < 2 ? 0.1 : 0));
-    drawText('C: COLOR     F: FACE', 128, 104, C.white, 1, 'center');
-    drawText('T: CONTROLS - ' + CONTROLS.label, 128, 114, C.white, 1, 'center');
-    if (blink()) drawText('PRESS ENTER', 128, 140, C.white, 2, 'center');
-    drawText(CONTROLS.label + ' MOVE  SPACE JUMP  X RUN', 128, 224, C.white, 1, 'center');
-    drawText(CONTROLS.debugLabel + ': DEBUG   M: MUTE   R: RESET SAVE', 128, 232, C.grey, 1, 'center');
+    if (Touch.enabled) {
+      drawText('TAP COLOR / FACE TO CUSTOMISE', 128, 104, C.white, 1, 'center');
+    } else {
+      drawText('C: COLOR     F: FACE', 128, 104, C.white, 1, 'center');
+      drawText('T: CONTROLS - ' + CONTROLS.label, 128, 114, C.white, 1, 'center');
+    }
+    if (blink()) drawText(hintStart(), 128, 140, C.white, 2, 'center');
+    if (Touch.enabled) {
+      drawText('D-PAD MOVE   A JUMP   B RUN', 128, 224, C.white, 1, 'center');
+    } else {
+      drawText(CONTROLS.label + ' MOVE  SPACE JUMP  X RUN', 128, 224, C.white, 1, 'center');
+      drawText(CONTROLS.debugLabel + ': DEBUG   M: MUTE   R: RESET SAVE', 128, 232, C.grey, 1, 'center');
+    }
     if (this.msg) drawText(this.msg, 128, 128, C.red, 1, 'center');
   }
 };
@@ -1255,9 +1516,7 @@ STATES.title = {
    Old saves are safe to keep: unknown worlds/nodes fall back to the first start.
    ------------------------------------------------------------------------- */
 const WORLDS = [
-  // Add your worlds here, separated by commas. Example with 10 levels that
-  // scrolls sideways (remove the //):
-  
+  // One { ... } object per world, separated by commas (see the guide above).
     { name: 'WORLD 1', bg: C.green, dots: C.dkgreen, deco: 'tree', nodes: [
         { id: 'w1start', type: 'start', x: 20,  y: 200, links: { right: '1-1' } },
         { id: '1-1', type: 'level', level: '1-1', x: 60, y: 200, links: { left: 'w1start', right: '1-2' } },
@@ -1311,7 +1570,6 @@ WORLDS.forEach((w, wi) => {
   w.bounds = { x0, y0, x1, y1 };
 });
 
-// A node with 'secret' and/or 'secretExit' stays hidden until ONE of them is satisfied.
 // A node with 'secret' and/or 'secretExit' stays hidden until ONE of them is satisfied.
 const nodeVisible = n => {
   if (!n.secret && !n.secretExit) return true;                                   // not a secret node
@@ -1478,17 +1736,17 @@ STATES.map = {
       const lv = LEVEL_BY_ID[cur.level] || { id: cur.level, name: 'MISSING LEVEL' };
       drawText(lv.id + ' ' + lv.name, 8, 225, C.white, 1);
       drawText(Save.cleared[lv.id] ? 'BEST ' + (Save.best[lv.id] || 0) + '%' : 'NOT CLEARED', 248, 225, Save.cleared[lv.id] ? C.yellow : C.grey, 1, 'right');
-    } else if (cur.type === 'warp') drawText('WARP PIPE! PRESS ENTER', 8, 225, C.green, 1);
-    else if (cur.type === 'goal') drawText('THE GOAL! PRESS ENTER', 8, 225, C.yellow, 1);
+    } else if (cur.type === 'warp') drawText('WARP PIPE! ' + hintConfirm(), 8, 225, C.green, 1);
+    else if (cur.type === 'goal') drawText('THE GOAL! ' + hintConfirm(), 8, 225, C.yellow, 1);
     else drawText('START', 8, 225, C.white, 1);
-    drawText(CONTROLS.label + ' MOVE   ENTER PLAY   ESC TITLE', 128, 233, C.grey, 1, 'center');
+    drawText(Touch.enabled ? 'D-PAD MOVE   A PLAY   BACK TITLE' : CONTROLS.label + ' MOVE   ENTER PLAY   ESC TITLE', 128, 233, C.grey, 1, 'center');
     if (this.msgT > 0) { rect(20, 100, 216, 24, C.black); drawText(this.msg, 128, 108, C.yellow, 1, 'center'); }
     if (this.showEnd) {
       rect(16, 70, 224, 100, C.black); rect(18, 72, 220, 96, C.dkgrey); rect(20, 74, 216, 92, C.black);
       drawText('CONGRATULATIONS!', 128, 86, C.yellow, 2, 'center');
       drawText('YOU CLEARED EVERY WORLD', 128, 112, C.white, 1, 'center');
       drawText('GO BACK FOR GOLD STARS!', 128, 126, C.white, 1, 'center');
-      if (blink()) drawText('PRESS ENTER', 128, 148, C.cyan, 1, 'center');
+      if (blink()) drawText(hintStart(), 128, 148, C.cyan, 1, 'center');
     }
   },
   // Blinking arrows on the screen edges: "there is more map this way".
@@ -1517,7 +1775,7 @@ STATES.map = {
     drawText('OPEN INDEX.HTML AND READ', 128, 114, C.white, 1, 'center');
     drawText('SECTION 5: LEVELS', 128, 130, C.cyan, 1, 'center');
     drawText('SECTION 7: WORLD MAP', 128, 142, C.cyan, 1, 'center');
-    if (blink()) drawText('PRESS ENTER', 128, 190, C.grey, 1, 'center');
+    if (blink()) drawText(hintStart(), 128, 190, C.grey, 1, 'center');
   },
   drawNode(n) {
     const x = n.x, y = n.y, unlocked = nodeUnlocked(n);
@@ -1583,6 +1841,9 @@ STATES.level = {
     this.phaseT++;
     updateParticles(this.particles);
 
+    // BACK leaves the level at any time (intro, play, death) - except while a clear is being recorded.
+    if (Input.pressed('back') && this.phase !== 'exit') { fadeTo(() => changeState('map')); return; }
+
     if (this.phase === 'enter') {
       if (this.phaseT > 30) { this.phase = 'play'; this.phaseT = 0; }
       return;
@@ -1609,7 +1870,6 @@ STATES.level = {
     }
 
     // ---- phase 'play' ----
-    if (Input.pressed('back')) { fadeTo(() => changeState('map')); return; }
 
     updatePlayer(L);
     for (const e of this.enemies) updateEnemy(e, L);
@@ -1799,7 +2059,7 @@ STATES.tally = {
     }
     drawText(this.done ? (pct >= 100 ? 'PERFECT! GOLD STARS!' : (pct >= STAR_STEPS[0] ? 'NICE COLLECTING!' : 'CLEARED!')) : 'COUNTING...', 128, 186, pct >= 100 ? C.yellow : C.white, 1, 'center');
     drawText('BEST ' + Math.max(Save.best[this.info.levelId] || 0, 0) + '%', 128, 198, C.grey, 1, 'center');
-    if (this.done && blink()) drawText('PRESS ENTER', 128, 210, C.cyan, 1, 'center');
+    if (this.done && blink()) drawText(hintStart(), 128, 210, C.cyan, 1, 'center');
     drawParticles(this.confetti);
   }
 };
@@ -1830,11 +2090,28 @@ function draw() {
   }
 }
 
-// Resize the canvas to the biggest WHOLE-NUMBER scale that fits the window.
+// Resize the canvas to fit the window.
+//  - Computers: the biggest WHOLE-NUMBER scale that fits (crispest).
+//  - Touch screens: fit above (portrait) or between (landscape) the on-screen buttons.
+//    Phones have 2-3 real pixels per CSS pixel, so we pick a scale that is a whole number of
+//    REAL pixels to keep things sharp - unless that would waste too much of the screen.
 function resize() {
-  const scale = Math.max(1, Math.floor(Math.min(window.innerWidth / SCREEN_W, window.innerHeight / SCREEN_H)));
-  canvas.style.width  = Math.round(SCREEN_W * scale * (STRETCH_TO_4_3 ? 8 / 7 : 1)) + 'px';
-  canvas.style.height = (SCREEN_H * scale) + 'px';
+  const w = window.innerWidth, h = window.innerHeight, stretch = STRETCH_TO_4_3 ? 8 / 7 : 1;
+  let scale;
+  if (!Touch.enabled) {
+    scale = Math.max(1, Math.floor(Math.min(w / SCREEN_W, h / SCREEN_H)));
+  } else {
+    const portrait = h > w;
+    document.body.classList.toggle('portrait', portrait);
+    document.body.classList.toggle('landscape', !portrait);
+    const availH = portrait ? Math.max(200, h - 270) : h;                 // portrait: leave room for the buttons
+    const fit = Math.min(w / (SCREEN_W * stretch), availH / SCREEN_H);
+    const dpr = window.devicePixelRatio || 1;
+    const crisp = Math.floor(fit * dpr) / dpr;
+    scale = (crisp >= 1 && crisp >= fit * 0.85) ? crisp : fit;
+  }
+  canvas.style.width  = Math.round(SCREEN_W * scale * stretch) + 'px';
+  canvas.style.height = Math.round(SCREEN_H * scale) + 'px';
 }
 
 let lastTime = 0, accumulator = 0, fpsFrames = 0, fpsTime = 0;
@@ -1853,10 +2130,12 @@ function init() {
   ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
   Input.init();
+  Touch.init();                                      // on-screen buttons (only on touch screens)
   buildSheets();
   Save.load();
   applyControls(Save.controls);                      // arrows or WASD, whichever was saved
   window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', resize);
   resize();
   changeState('title');
   lastTime = fpsTime = performance.now();
