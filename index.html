@@ -10,37 +10,32 @@
 <title>Square Quest - an 8-bit platformer</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%23d82800'/%3E%3Crect x='3' y='5' width='3' height='4' fill='%23fff'/%3E%3Crect x='9' y='5' width='3' height='4' fill='%23fff'/%3E%3Crect x='4' y='6' width='2' height='2'/%3E%3Crect x='10' y='6' width='2' height='2'/%3E%3C/svg%3E">
 <style>
-  /* The page is just a black background with the canvas centred in it. */
+
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
-  @supports (height: 100dvh) { html, body { height: 100dvh; } }   /* phones: ignore the collapsing address bar */
+  @supports (height: 100dvh) { html, body { height: 100dvh; } }
   body { display: flex; align-items: center; justify-content: center;
          -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
-  /* "pixelated" keeps the big scaled-up pixels crisp instead of blurry. */
+
   canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #000; touch-action: none; }
 
-  /* ---- ON-SCREEN TOUCH CONTROLS --------------------------------------------
-     Hidden on computers. The game adds class "touch" to <body> on touch screens
-     (see section 3b in the script). Colours here are plain CSS - tweak freely. */
   #touch { display: none; touch-action: none; font-family: ui-monospace, Menlo, Consolas, monospace; }
   body.touch #touch { display: block; }
   #touch > * { position: absolute; }
   #touch button { font: inherit; font-weight: bold; color: #fff; margin: 0; padding: 0; cursor: default; touch-action: none; outline: none; }
   .pill  { height: 34px; min-width: 64px; padding: 0 12px; border-radius: 17px; font-size: 13px; letter-spacing: 1px;
            border: 2px solid rgba(255,255,255,.6); background: rgba(70,70,105,.75); }
-  .round { width: var(--btn); height: var(--btn); border-radius: 50%; font-size: 26px;
+  .round { width: var(--btn); height: var(--btn); border-radius: 50%; font-size: 28px;
            border: 3px solid rgba(0,0,0,.65); box-shadow: inset 0 -6px 0 rgba(0,0,0,.28); }
   .round.a { background: rgba(216,40,0,.8); }
   .round.b { background: rgba(252,116,72,.8); }
   .pill.on, .round.on { filter: brightness(1.7); transform: scale(.94); }
   #sys  { display: flex; gap: 8px; }
-  #menu { display: none; gap: 8px; }                              /* COLOR / FACE: title screen only */
+  #menu { display: none; gap: 8px; }
   body[data-screen="title"] #menu { display: flex; }
   #ab   { display: flex; gap: 12px; align-items: flex-end; }
-  #ab .a { margin-bottom: calc(var(--btn) * .35); }               /* A sits a little higher, like a gamepad */
 
-  /* the D-pad: a plus-shaped pad with an arrow in each arm */
-  #dpad { width: var(--pad); height: var(--pad); background: rgba(70,70,105,.75); touch-action: none;
-          clip-path: polygon(33% 0, 67% 0, 67% 33%, 100% 33%, 100% 67%, 67% 67%, 67% 100%, 33% 100%, 33% 67%, 0 67%, 0 33%, 33% 33%); }
+
+  #dpad { width: var(--pad); height: var(--pad); border-radius: 50%; background: rgba(70,70,105,.82); touch-action: none; }
   #dpad i { position: absolute; width: 0; height: 0; border: 9px solid transparent; }
   #dpad .u { left: calc(50% - 9px); top: 5%;    border-top-width: 0;    border-bottom-color: rgba(255,255,255,.75); }
   #dpad .d { left: calc(50% - 9px); bottom: 5%; border-bottom-width: 0; border-top-color:    rgba(255,255,255,.75); }
@@ -51,16 +46,14 @@
   #dpad.held-left .l  { border-right-color:  #fcd83c; }
   #dpad.held-right .r { border-left-color:   #fcd83c; }
 
-  /* PORTRAIT: the game sits on top, the buttons underneath. */
   body.touch.portrait { flex-direction: column; justify-content: flex-start; }
-  body.touch.portrait #touch { position: relative; flex: 1 1 auto; width: 100%; --pad: min(38vw, 150px); --btn: min(18vw, 70px); }
+  body.touch.portrait #touch { position: relative; flex: 1 1 auto; width: 100%; --pad: min(42vw, 170px); --btn: min(21vw, 82px); }
   body.touch.portrait #sys  { top: 8px;  left: 50%; transform: translateX(-50%); }
   body.touch.portrait #menu { top: 50px; left: 50%; transform: translateX(-50%); }
   body.touch.portrait #dpad { left: calc(env(safe-area-inset-left) + 14px);  bottom: calc(env(safe-area-inset-bottom) + 18px); }
   body.touch.portrait #ab   { right: calc(env(safe-area-inset-right) + 14px); bottom: calc(env(safe-area-inset-bottom) + 18px); }
 
-  /* LANDSCAPE: the game fills the height and the buttons float over the black side bars. */
-  body.touch.landscape #touch { position: fixed; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; --pad: min(46vh, 170px); --btn: min(22vh, 76px); }
+  body.touch.landscape #touch { position: fixed; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; --pad: min(50vh, 190px); --btn: min(25vh, 88px); }
   body.touch.landscape #touch > * { pointer-events: auto; }
   body.touch.landscape #sys  { right: calc(env(safe-area-inset-right) + 12px); top: calc(env(safe-area-inset-top) + 10px); flex-direction: column; }
   body.touch.landscape #menu { left: calc(env(safe-area-inset-left) + 12px);   top: calc(env(safe-area-inset-top) + 10px); flex-direction: column; }
@@ -71,8 +64,6 @@
 <body>
 <canvas id="game" width="256" height="240"></canvas>
 
-<!-- On-screen touch controls. Each data-act is the game "action" the button triggers
-     (several can be listed, separated by commas). See section 3b in the script. -->
 <div id="touch" aria-hidden="true">
   <div id="dpad"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i></div>
   <div id="sys">
@@ -85,106 +76,55 @@
     <button class="pill" data-act="face">FACE</button>
   </div>
   <div id="ab">
-    <button class="round b" data-act="run">B</button>
     <button class="round a" data-act="jump,confirm">A</button>
   </div>
 </div>
 
 <script>
 'use strict';
-/* =========================================================================
-   SQUARE QUEST  -  a tiny NES-style platformer in ONE file
-   -------------------------------------------------------------------------
-   CONTROLS
-     Arrow keys ..... move            Space / Z / Up ... jump (hold = higher)
-       (or WASD: press T on the title screen to swap; W / Space / Z jump)
-     X / Shift ...... run             Down + Jump ...... drop through thin platforms
-     Enter .......... confirm         Esc .............. back to map
-     D .............. debug overlay   M ................ mute
-       (in WASD mode D means "move right", so debug moves to F3 or the ` key)
-     C / F .......... change colour / face (title screen)
-     T .............. swap Arrows <-> WASD (title screen)
-     R .............. reset save (title screen)
-     TOUCH SCREENS .. on-screen D-pad, A (jump / confirm), B (run), BACK, MUTE and START
-                      appear automatically on phones and tablets (see section 3b)
 
-   FILE LAYOUT  (search for the "=====" banners)
-     1. CONSTANTS            numbers you can tweak: physics, colours, rules
-     2. HELPERS              tiny utilities, pixel font, sound, save data
-     3. INPUT HANDLER        keyboard + touch buttons -> "actions" like 'jump'
-     4. ASSET / TILE RENDERER  sprites drawn with code + the AUTO-TILER
-     5. LEVEL DATA           ASCII-art levels + the parser
-     6. PHYSICS & COLLISION  movement, wall edge-lock, enemies
-     7. GAME STATES          Title, World Map, Level, Tally
-     8. MAIN LOOP            fixed 60 fps update + draw
-   ========================================================================= */
-
-/* QUICK START - EDITING THE GAME
-   Everything you will want to change lives in two places:
-     Section 5  ->  const LEVELS = [ ... ]   draw each stage as text art
-     Section 7  ->  const WORLDS = [ ... ]   place the stages on a scrolling map
-   Each section starts with a full step-by-step guide and a copy-paste example.
-   (If WORLDS is left empty the map screen shows a "NO WORLDS YET" notice, so this
-   file also works as an empty engine to build a brand-new game on.)
-   Typos (unknown ids, missing start/exit) are reported in the browser console (F12). */
-
-
-/* =========================================================================
-   1. CONSTANTS
-   ========================================================================= */
-
-const SCREEN_W = 256;          // NES resolution
+const SCREEN_W = 256;
 const SCREEN_H = 240;
-const TILE     = 16;           // every tile is 16x16 pixels
-const ROWS     = 15;           // 240 / 16 -> every level is 15 tiles tall
-const STEP_MS  = 1000 / 60;    // the game logic runs at 60 updates per second
+const TILE     = 16;
+const ROWS     = 15;
+const STEP_MS  = 1000 / 60;
 
-// Set to true to stretch the picture to a true 4:3 shape like an old CRT TV.
-// (false = perfectly square pixels at an integer scale, which is crispest.)
 const STRETCH_TO_4_3 = false;
 
-// Which movement keys the game starts with: 'arrows' or 'wasd'.
-// Players can swap any time on the title screen with T (the choice is remembered).
 const DEFAULT_CONTROLS = 'arrows';
 
-// ---- Level completion rules -------------------------------------------
-const CLEAR_PERCENT = 40;                 // need this % of coins to clear a level
-const STAR_STEPS    = [60, 80, 90];       // silver stars at these percentages
-                                          // (all three turn GOLD at 100%)
+const CLEAR_PERCENT = 40;
+const STAR_STEPS    = [60, 80, 90];
 
-// ---- The 16-colour palette (every colour in the game comes from here) ---
 const C = {
     black:  '#0f0f1b', white:  '#fcfcfc', grey:   '#9c9ca8', dkgrey: '#44445a',
     red:    '#d82800', orange: '#fc7448', yellow: '#fcd83c', gold:   '#e8a000',
     green:  '#00a844', dkgreen:'#005830', brown:  '#a0663c', dkbrown:'#58341c',
     sky:    '#5c94fc', blue:   '#0058f8', purple: '#7c44fc', cyan:   '#3cd8fc',
-    mist:   '#8fa3b8',   // desaturated sky
-    haze:   '#a9b8c6',   // paler, for distant hills
-    fog:    '#6f8398',   // darker low band
+    mist:   '#8fa3b8',
+    haze:   '#a9b8c6',
+    fog:    '#6f8398',
 };
 
-// ---- Physics (all values are "pixels per frame" at 60 fps) ---------------
-// Tweak these to change how the square feels! Bigger = stronger.
 const PHYS = {
-  WALK_ACCEL: 0.045,    // speed gained per frame when walking
-  RUN_ACCEL:  0.070,    // ...when holding the run button
-  MAX_WALK:   1.5,      // top walking speed
-  MAX_RUN:    2.5,      // top running speed
-  FRICTION:   0.06,     // slowing down when you let go (on the ground)
-  SKID:       0.14,     // braking when you push the OPPOSITE way
-  JUMP_VEL:   4.0,      // initial upward speed of a jump
-  JUMP_BONUS: 0.12,     // extra jump speed per px/frame of horizontal speed
-  GRAV_HELD:  0.125,    // gravity while rising AND holding jump (floaty, high)
-  GRAV_FALL:  0.4375,   // gravity otherwise (snappy)
-  MAX_FALL:   4.5,      // terminal velocity
-  COYOTE:     4,        // frames you can still jump after walking off a ledge
-  JUMP_BUFFER:5,        // frames a too-early jump press is remembered
-  STOMP_BOUNCE:      3.2,   // bounce after stomping an enemy
-  STOMP_BOUNCE_HELD: 4.6,   // ...while holding jump
-  EDGE_LOCK_FRAMES:  2      // length of the wall "edge lock" (see section 6)
+  WALK_ACCEL: 0.045,
+  RUN_ACCEL:  0.070,
+  MAX_WALK:   1.5,
+  MAX_RUN:    2.5,
+  FRICTION:   0.06,
+  SKID:       0.14,
+  JUMP_VEL:   4.0,
+  JUMP_BONUS: 0.12,
+  GRAV_HELD:  0.125,
+  GRAV_FALL:  0.4375,
+  MAX_FALL:   4.5,
+  COYOTE:     4,
+  JUMP_BUFFER:5,
+  STOMP_BOUNCE:      3.2,
+  STOMP_BOUNCE_HELD: 4.6,
+  EDGE_LOCK_FRAMES:  2
 };
 
-// Player customisation: [body, shadow, highlight] colour sets
 const PLAYER_COLORS = [
   [C.red,    C.dkbrown, C.orange], [C.cyan,   C.blue,    C.white],
   [C.green,  C.dkgreen, C.yellow], [C.yellow, C.gold,    C.white],
@@ -192,34 +132,23 @@ const PLAYER_COLORS = [
 ];
 const FACE_COUNT = 4;
 
-
-/* =========================================================================
-   2. HELPERS: math, pixel font, sound, save data
-   ========================================================================= */
-
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const aabb  = (ax, ay, aw, ah, bx, by, bw, bh) =>
-  ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;   // box overlap test
+  ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 
-let canvas, ctx;   // the screen (filled in by init() at the bottom)
+let canvas, ctx;
 
-// Make an off-screen canvas. We "bake" sprites onto these once, then stamp them.
 function makeCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   return { canvas: c, g: c.getContext('2d') };
 }
 
-// Draw a solid rectangle on the screen (coordinates are rounded to whole pixels).
 function rect(x, y, w, h, color) {
   ctx.fillStyle = color;
   ctx.fillRect(Math.round(x), Math.round(y), w, h);
 }
 
-// ---- Tiny 3x5 pixel font -------------------------------------------------
-// Each glyph = 5 digits (one per row). Each digit is a 3-bit octal number:
-// 4 = left pixel, 2 = middle pixel, 1 = right pixel.  Example 'A' = 25755:
-//   2 -> .#.     5 -> #.#     7 -> ###     5 -> #.#     5 -> #.#
 const FONT = {
   'A':'25755','B':'65656','C':'34443','D':'65556','E':'74647','F':'74644','G':'34553',
   'H':'55755','I':'72227','J':'11152','K':'55655','L':'44447','M':'57755','N':'65555',
@@ -247,7 +176,6 @@ function drawGlyphs(str, x, y, color, scale) {
   }
 }
 
-// drawText('HELLO', x, y, colour, scale, 'left' | 'center' | 'right')
 function drawText(str, x, y, color = C.white, scale = 1, align = 'left', shadow = true) {
   str = String(str).toUpperCase();
   if (align === 'center') x -= Math.floor(textWidth(str, scale) / 2);
@@ -257,15 +185,13 @@ function drawText(str, x, y, color = C.white, scale = 1, align = 'left', shadow 
   drawGlyphs(str, x, y, color, scale);
 }
 
-// ---- Sound effects (simple square-wave beeps, no audio files needed) -----
 const Sfx = {
   ac: null, mute: false,
-  // Browsers keep sound off until the player taps or presses something, so we wake it up then.
   unlock() {
     try {
       if (!this.ac) this.ac = new (window.AudioContext || window.webkitAudioContext)();
       if (this.ac.state === 'suspended') this.ac.resume();
-    } catch (e) { /* audio is optional - ignore errors */ }
+    } catch (e) {  }
   },
   beep(freq, dur, type = 'square', slide = 0, vol = 0.05, delay = 0) {
     if (this.mute) return;
@@ -281,7 +207,7 @@ const Sfx = {
       gain.gain.linearRampToValueAtTime(0.0001, t + dur);
       osc.connect(gain); gain.connect(this.ac.destination);
       osc.start(t); osc.stop(t + dur);
-    } catch (e) { /* audio is optional - ignore errors */ }
+    } catch (e) {  }
   },
   jump()  { this.beep(260, 0.16, 'square', 320); },
   coin()  { this.beep(988, 0.05); this.beep(1319, 0.18, 'square', 0, 0.05, 0.05); },
@@ -293,26 +219,25 @@ const Sfx = {
   step()  { this.beep(520, 0.05, 'triangle'); }
 };
 
-// ---- Save data (progress is remembered with localStorage) ----------------
 const Save = {
-  cleared: {},     // { '1-1': true }
-  best:    {},     // { '1-1': 85 }   best coin percentage per level
-  secret:  {},     // { '1-2': true } levels cleared through their SECRET exit (%)
+  cleared: {},
+  best:    {},
+  secret:  {},
   world: 0, node: 'w1start',
   color: 0, face: 0,
-  controls: DEFAULT_CONTROLS,          // 'arrows' or 'wasd'
+  controls: DEFAULT_CONTROLS,
   load() {
     try {
       const s = JSON.parse(localStorage.getItem('squareQuestSave') || 'null');
       if (s) Object.assign(this, s);
-    } catch (e) { /* no storage available - fine */ }
+    } catch (e) {  }
   },
   store() {
     try {
       localStorage.setItem('squareQuestSave', JSON.stringify({
         cleared: this.cleared, best: this.best, secret: this.secret, world: this.world,
         node: this.node, color: this.color, face: this.face, controls: this.controls }));
-    } catch (e) { /* ignore */ }
+    } catch (e) {  }
   },
   reset() {
     this.cleared = {}; this.best = {}; this.secret = {}; this.world = 0; this.node = 'w1start';
@@ -320,7 +245,6 @@ const Save = {
   }
 };
 
-// ---- Particles (little sparkles, dust and confetti) ----------------------
 function spawnBurst(list, x, y, color, count, speed, life = 24) {
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2, s = Math.random() * speed + speed * 0.3;
@@ -335,27 +259,14 @@ function drawParticles(list, camX = 0) {
   for (const p of list) rect(p.x - camX, p.y, 2, 2, p.color);
 }
 
-
-/* =========================================================================
-   3. INPUT HANDLER
-   -------------------------------------------------------------------------
-   The game never asks "is the Z key down?". It asks "is JUMP down?".
-   To change keys, edit COMMON_KEYS and CONTROL_SCHEMES below.
-     Input.down('jump')    -> true every frame the button is held
-     Input.pressed('jump') -> true only on the first frame it was pressed
-   ========================================================================= */
-
-// Keys that are the same whichever movement layout is active.
 const COMMON_KEYS = {
   run:   ['KeyX', 'ShiftLeft', 'ShiftRight'],
   start: ['Enter'],      back:  ['Escape'],
-  confirm: ['Space', 'KeyZ'],            // menus / world map "go" button (NOT Up/W)
+  confirm: ['Space', 'KeyZ'],
   color: ['KeyC'],       face:  ['KeyF'],
   mute:  ['KeyM'],       reset: ['KeyR'],  controls: ['KeyT']
 };
 
-// The two movement layouts. Press T on the title screen to swap between them.
-// 'label' and 'debugLabel' are only used for the on-screen hint text.
 const CONTROL_SCHEMES = {
   arrows: { label: 'ARROWS', debugLabel: 'D',
             left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'], down: ['ArrowDown'],
@@ -364,13 +275,12 @@ const CONTROL_SCHEMES = {
   wasd:   { label: 'WASD', debugLabel: 'F3',
             left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'],
             jump: ['Space', 'KeyZ', 'KeyW'],
-            debug: ['Backquote', 'F3'] }     // D is "move right" here, so debug needs another key
+            debug: ['Backquote', 'F3'] }
 };
 
-let KEYMAP = {};                                  // filled in by applyControls()
-let CONTROLS = CONTROL_SCHEMES[DEFAULT_CONTROLS]; // the layout currently in use
+let KEYMAP = {};
+let CONTROLS = CONTROL_SCHEMES[DEFAULT_CONTROLS];
 
-// Switch layout: 'arrows' or 'wasd'. Unknown names fall back to the default.
 function applyControls(name) {
   if (!CONTROL_SCHEMES[name]) name = DEFAULT_CONTROLS;
   CONTROLS = CONTROL_SCHEMES[name];
@@ -380,12 +290,12 @@ function applyControls(name) {
 }
 
 const Input = {
-  codes: new Set(),          // keys currently held
-  pressedNow: new Set(),     // actions pressed since the last update
-  virtual: new Set(),        // actions held by on-screen touch buttons (section 3b)
+  codes: new Set(),
+  pressedNow: new Set(),
+  virtual: new Set(),
   init() {
     window.addEventListener('keydown', e => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;       // keep browser shortcuts working
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       for (const action in KEYMAP) {
         if (KEYMAP[action].includes(e.code)) {
           e.preventDefault();
@@ -396,7 +306,6 @@ const Input = {
     });
     window.addEventListener('keyup',  e => this.codes.delete(e.code));
     window.addEventListener('blur',   () => { this.codes.clear(); this.virtual.clear(); Touch.releaseAll(); });
-    // Wake the sound up on the first key press / tap (and keep trying until the browser allows it).
     const wake = () => {
       Sfx.unlock();
       if (Sfx.ac && Sfx.ac.state === 'running') for (const ev of WAKE_EVENTS) window.removeEventListener(ev, wake);
@@ -404,7 +313,6 @@ const Input = {
     const WAKE_EVENTS = ['keydown', 'pointerup', 'touchend', 'click'];
     for (const ev of WAKE_EVENTS) window.addEventListener(ev, wake);
   },
-  // A touch button went down / came up. Works exactly like a key press / release.
   vpress(action)   { this.virtual.add(action); this.pressedNow.add(action); },
   vrelease(action) { this.virtual.delete(action); },
   down(action)    { return KEYMAP[action].some(c => this.codes.has(c)) || this.virtual.has(action); },
@@ -412,39 +320,24 @@ const Input = {
   endFrame()      { this.pressedNow.clear(); }
 };
 
-/* =========================================================================
-   3b. TOUCH CONTROLS  (phones and tablets)
-   -------------------------------------------------------------------------
-   The buttons are ordinary HTML elements (the <div id="touch"> near the top of
-   this file). They stay hidden on computers and appear on touch screens.
-   Touching one does exactly what a key press does: Input.vpress(action) when a
-   finger goes down, Input.vrelease(action) when it lifts. The rest of the game
-   never needs to know whether you play with a keyboard or a thumb.
-
-     D-pad ........... left / right / up / down  (slide your thumb - it follows)
-     A ............... jump AND confirm (menus, world map)
-     B ............... run
-     START / BACK / MUTE ... Enter / Esc / M
-     COLOR / FACE .... only shown on the title screen (same as C / F)
-
-   To change what a button does, edit its data-act="..." in the HTML.
-   ========================================================================= */
-
 const Touch = {
   enabled: false,
-  dir: null,                 // D-pad direction currently held ('left' ... ) or null
+  dir: null,
   dpadEl: null,
+  lastTapDir: null,
+  lastTapAt: 0,
+  running: false,
 
   init() {
     const root = document.getElementById('touch');
-    if (!root) return;                                           // no touch markup = no touch controls
+    if (!root) return;
     this.dpadEl = document.getElementById('dpad');
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) this.enable();
-    window.addEventListener('touchstart', () => this.enable(), { once: true, passive: true });   // laptops with touch screens
+    window.addEventListener('touchstart', () => this.enable(), { once: true, passive: true });
     this.bindDpad(this.dpadEl);
     for (const el of root.querySelectorAll('[data-act]')) this.bindButton(el, el.dataset.act.split(','));
-    document.addEventListener('contextmenu', e => { if (this.enabled) e.preventDefault(); });   // no long-press menu
-    document.addEventListener('gesturestart', e => e.preventDefault());                          // no pinch-zoom (iOS)
+    document.addEventListener('contextmenu', e => { if (this.enabled) e.preventDefault(); });
+    document.addEventListener('gesturestart', e => e.preventDefault());
   },
 
   enable() {
@@ -454,11 +347,10 @@ const Touch = {
     resize();
   },
 
-  // A normal button: press = all of its actions go down, lift = they all come up.
   bindButton(el, actions) {
     const press = e => {
       e.preventDefault();
-      try { el.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+      try { el.setPointerCapture(e.pointerId); } catch (err) {  }
       el.classList.add('on');
       for (const a of actions) Input.vpress(a);
     };
@@ -469,17 +361,16 @@ const Touch = {
     el.addEventListener('lostpointercapture', release);
   },
 
-  // The D-pad is one big button: where your thumb sits (relative to the centre) picks the direction.
   bindDpad(el) {
     const read = e => {
       const r = el.getBoundingClientRect();
-      const dx = (e.clientX - r.left) / r.width - 0.5, dy = (e.clientY - r.top) / r.height - 0.5;   // -0.5 .. 0.5
-      if (Math.hypot(dx, dy) < 0.1) return this.setDir(null);                                        // dead zone in the middle
+      const dx = (e.clientX - r.left) / r.width - 0.5, dy = (e.clientY - r.top) / r.height - 0.5;
+      if (Math.hypot(dx, dy) < 0.1) return this.setDir(null);
       this.setDir(Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down'));
     };
     el.addEventListener('pointerdown', e => {
       e.preventDefault();
-      try { el.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+      try { el.setPointerCapture(e.pointerId); } catch (err) {  }
       read(e);
     });
     el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) read(e); });
@@ -492,12 +383,29 @@ const Touch = {
   setDir(dir) {
     if (dir === this.dir) return;
     if (this.dir) Input.vrelease(this.dir);
+    if (this.running) {
+      Input.vrelease('run');
+      this.running = false;
+    }
     this.dir = dir;
-    if (dir) Input.vpress(dir);
+    if (dir) {
+      Input.vpress(dir);
+      if (dir === 'left' || dir === 'right') {
+        const now = Date.now();
+        if (this.lastTapDir === dir && now - this.lastTapAt <= 320) {
+          Input.vpress('run');
+          this.running = true;
+          this.lastTapDir = null;
+          this.lastTapAt = 0;
+        } else {
+          this.lastTapDir = dir;
+          this.lastTapAt = now;
+        }
+      }
+    }
     this.dpadEl.className = dir ? 'held-' + dir : '';
   },
 
-  // Let go of everything (used when the page loses focus so nothing gets stuck).
   releaseAll() {
     if (!this.dpadEl) return;
     this.setDir(null);
@@ -505,19 +413,9 @@ const Touch = {
   }
 };
 
-// Text hints differ between keyboard and touch ("PRESS ENTER" vs "PRESS START").
 const hintStart   = () => Touch.enabled ? 'PRESS START' : 'PRESS ENTER';
 const hintConfirm = () => Touch.enabled ? 'PRESS A'     : 'PRESS ENTER';
 
-
-/* =========================================================================
-   4. ASSET / TILE RENDERER
-   -------------------------------------------------------------------------
-   There are no image files. Every sprite is drawn with fillRect calls onto a
-   small off-screen canvas ("baked" once at start-up), then stamped on screen.
-   ========================================================================= */
-
-// ---- Visual themes: which colours each kind of level uses ----------------
 const THEMES = {
     day:    { fill: C.brown,  speck: C.dkbrown, top: C.green,  topDark: C.dkgreen, edge: C.dkbrown,
             brick: C.orange, brickLine: C.dkbrown, plank: C.orange, plankLight: C.yellow, plankDark: C.dkbrown },
@@ -525,38 +423,32 @@ const THEMES = {
             brick: C.grey,   brickLine: C.dkgrey,  plank: C.cyan,   plankLight: C.white,  plankDark: C.blue },
     castle: { fill: C.dkgrey, speck: C.black,   top: C.grey,   topDark: C.dkgrey,  edge: C.black,
             brick: C.brown,  brickLine: C.black,   plank: C.grey,   plankLight: C.white,  plankDark: C.dkgrey },
-    // 'sky': ground and platforms look like solid clouds against open sky
     sky:    { fill: C.white,  speck: C.cyan,    top: C.white,  topDark: C.cyan,    edge: C.grey,
             brick: C.yellow, brickLine: C.gold,    plank: C.white, plankLight: C.cyan,   plankDark: C.grey },
     pine: { fill: C.brown, speck: C.grey,  top: C.darkgreen, topDark: C.grey,     edge: C.dkbrown,
             brick: C.dkgreen, brickLine: C.dkbrown, plank: C.brown, plankLight: C.grey, plankDark: C.dkbrown },
 };
 
-const SHEETS = {};   // SHEETS.day.ground[mask], SHEETS.day.brick, ...
+const SHEETS = {};
 
-// Bit flags used by the auto-tiler. "1" means "a solid neighbour is there".
 const N_UP = 1, N_RIGHT = 2, N_DOWN = 4, N_LEFT = 8;
-// Diagonal flags: set when a diagonal neighbour is MISSING between two solid neighbours
 const D_TL = 1, D_TR = 2, D_BR = 4, D_BL = 8;
 
-// Build one ground tile variant. `mask` says which sides have solid neighbours,
-// so a side WITHOUT a neighbour gets an edge (grass on top, dark outline, ...).
 function buildGroundTile(th, mask) {
   const { canvas: cv, g } = makeCanvas(16, 16);
   g.fillStyle = th.fill; g.fillRect(0, 0, 16, 16);
-  g.fillStyle = th.speck;                                   // dirt speckles
+  g.fillStyle = th.speck;
   for (const [sx, sy] of [[3,8],[4,8],[10,11],[11,11],[12,7],[6,13],[1,12],[14,14]]) g.fillRect(sx, sy, 1, 1);
 
-  if (!(mask & N_UP)) {                                     // exposed top -> grass
+  if (!(mask & N_UP)) {
     g.fillStyle = th.top;     g.fillRect(0, 0, 16, 4);
     g.fillStyle = th.topDark; g.fillRect(0, 4, 16, 1);
-    g.fillRect(2, 5, 2, 1); g.fillRect(7, 5, 3, 1); g.fillRect(12, 5, 2, 1);   // little hanging tufts
+    g.fillRect(2, 5, 2, 1); g.fillRect(7, 5, 3, 1); g.fillRect(12, 5, 2, 1);
   }
   g.fillStyle = th.edge;
-  if (!(mask & N_LEFT))  g.fillRect(0, 0, 1, 16);           // exposed sides get a dark outline
+  if (!(mask & N_LEFT))  g.fillRect(0, 0, 1, 16);
   if (!(mask & N_RIGHT)) g.fillRect(15, 0, 1, 16);
   if (!(mask & N_DOWN))  g.fillRect(0, 15, 16, 1);
-  // round off the exposed outer corners by erasing the corner pixel
   if (!(mask & N_UP)   && !(mask & N_LEFT))  g.clearRect(0, 0, 1, 1);
   if (!(mask & N_UP)   && !(mask & N_RIGHT)) g.clearRect(15, 0, 1, 1);
   if (!(mask & N_DOWN) && !(mask & N_LEFT))  g.clearRect(0, 15, 1, 1);
@@ -566,7 +458,7 @@ function buildGroundTile(th, mask) {
 
 function buildBrickTile(th) {
   const { canvas: cv, g } = makeCanvas(16, 16);
-  g.fillStyle = th.brickLine; g.fillRect(0, 0, 16, 16);       // mortar
+  g.fillStyle = th.brickLine; g.fillRect(0, 0, 16, 16);
   g.fillStyle = th.brick;
   for (let r = 0; r < 4; r++) {
     const segs = (r % 2 === 0) ? [[0, 7], [8, 7]] : [[0, 3], [4, 7], [12, 3]];
@@ -575,33 +467,31 @@ function buildBrickTile(th) {
   return cv;
 }
 
-// A thin one-way platform. idx bit0 = neighbour on the right, bit1 = neighbour on the left.
 function buildPlatformTile(th, idx) {
   const { canvas: cv, g } = makeCanvas(16, 16);
   g.fillStyle = th.plankLight; g.fillRect(0, 0, 16, 1);
   g.fillStyle = th.plank;      g.fillRect(0, 1, 16, 4);
   g.fillStyle = th.plankDark;  g.fillRect(0, 5, 16, 1);
-  for (const x of [3, 7, 11, 15]) g.fillRect(x, 1, 1, 4);   // wood grain
-  if (!(idx & 2)) { g.clearRect(0, 0, 1, 1); g.fillStyle = th.plankDark; g.fillRect(0, 1, 1, 5); }      // left cap
-  if (!(idx & 1)) { g.clearRect(15, 0, 1, 1); g.fillStyle = th.plankDark; g.fillRect(15, 1, 1, 5); }    // right cap
+  for (const x of [3, 7, 11, 15]) g.fillRect(x, 1, 1, 4);
+  if (!(idx & 2)) { g.clearRect(0, 0, 1, 1); g.fillStyle = th.plankDark; g.fillRect(0, 1, 1, 5); }
+  if (!(idx & 1)) { g.clearRect(15, 0, 1, 1); g.fillStyle = th.plankDark; g.fillRect(15, 1, 1, 5); }
   return cv;
 }
 
 function buildSpikeTile() {
   const { canvas: cv, g } = makeCanvas(16, 16);
-  for (const cx of [4, 12]) {                                // two triangles per tile
+  for (const cx of [4, 12]) {
     for (let y = 6; y < 16; y++) {
       const w = 1 + Math.floor((y - 6) * 7 / 9);
       const x0 = cx - Math.floor(w / 2);
       g.fillStyle = C.grey;  g.fillRect(x0, y, w, 1);
-      g.fillStyle = C.white; g.fillRect(x0, y, 1, 1);        // shiny left edge
+      g.fillStyle = C.white; g.fillRect(x0, y, 1, 1);
     }
   }
   g.fillStyle = C.dkgrey; g.fillRect(0, 15, 16, 1);
   return cv;
 }
 
-// Spikes hanging from a ceiling = the normal spike tile flipped upside down.
 function buildCeilingSpikeTile() {
   const { canvas: cv, g } = makeCanvas(16, 16);
   g.translate(0, 16); g.scale(1, -1);
@@ -619,16 +509,6 @@ function buildSheets() {
   }
 }
 
-/* ---- THE AUTO-TILER ------------------------------------------------------
-   Level data only says "#" (ground). This function looks at the 4 neighbours
-   (up/right/down/left) and 4 diagonals of a tile and decides WHICH picture to
-   use: a grassy top, a left edge, an inside corner... 16 variants in total.
-
-   Returns { mask, diag }:
-     mask = 4 bits, one per side that HAS a ground neighbour
-     diag = 4 bits, set when two touching sides are solid but the diagonal
-            between them is empty (an "inside corner" notch)
-   Tiles outside the level count as solid, so the level edges look seamless. */
 function isGroundNeighbour(level, col, row) {
   if (col < 0 || col >= level.w || row < 0 || row >= level.h) return true;
   return level.grid[row][col] === '#';
@@ -644,63 +524,58 @@ function autoTileGround(level, col, row) {
   if (down && left  && !s(col - 1, row + 1)) diag |= D_BL;
   return { mask, diag };
 }
-// Same idea for one-way platforms: only left/right neighbours matter.
 function autoTilePlatform(level, col, row) {
   const l = tileAt(level, col - 1, row) === '-', r = tileAt(level, col + 1, row) === '-';
   return (r ? 1 : 0) | (l ? 2 : 0);
 }
 
-// ---- Character drawing -----------------------------------------------------
-// Draws the customisable square. sx/sy = squash & stretch factors (1 = normal).
 function drawPlayerSprite(x, y, w, h, colorIdx, faceIdx, facing, sx = 1, sy = 1) {
   const [body, dark, light] = PLAYER_COLORS[colorIdx % PLAYER_COLORS.length];
   const bw = Math.round(w * sx), bh = Math.round(h * sy);
   const bx = Math.round(x + (w - bw) / 2), by = Math.round(y + h - bh);
-  rect(bx, by, bw, bh, C.black);                             // outline
-  rect(bx + 1, by + 1, bw - 2, bh - 2, body);                // body
-  rect(bx + 1, by + bh - 3, bw - 2, 2, dark);                // shadow along the bottom
-  rect(bx + 2, by + 2, 3, 1, light); rect(bx + 2, by + 2, 1, 3, light);   // shiny corner
-  const off = facing >= 0 ? 1 : -1;                          // eyes look where we walk
-  const p = facing >= 0 ? 1 : 0;                             // pupil side
+  rect(bx, by, bw, bh, C.black);
+  rect(bx + 1, by + 1, bw - 2, bh - 2, body);
+  rect(bx + 1, by + bh - 3, bw - 2, 2, dark);
+  rect(bx + 2, by + 2, 3, 1, light); rect(bx + 2, by + 2, 1, 3, light);
+  const off = facing >= 0 ? 1 : -1;
+  const p = facing >= 0 ? 1 : 0;
   const ey = by + Math.round(bh * 0.3);
   switch (faceIdx % FACE_COUNT) {
-    case 0:  // two friendly eyes
+    case 0:
       rect(bx + 2 + off, ey, 3, 4, C.white); rect(bx + 8 + off, ey, 3, 4, C.white);
       rect(bx + 2 + off + p, ey + 1, 2, 2, C.black); rect(bx + 8 + off + p, ey + 1, 2, 2, C.black);
       break;
-    case 1:  // one big cyclops eye
+    case 1:
       rect(bx + 4 + off, ey - 1, 6, 6, C.white);
       rect(bx + 5 + off + p, ey + 1, 3, 3, C.black);
       break;
-    case 2:  // cool visor
+    case 2:
       rect(bx + 1, ey, bw - 2, 4, C.black);
       rect(bx + (facing >= 0 ? bw - 6 : 3), ey + 1, 2, 2, C.cyan);
       rect(bx + (facing >= 0 ? bw - 10 : 7), ey + 1, 2, 2, C.cyan);
       break;
-    default: // grumpy eyebrows
+    default:
       rect(bx + 2 + off, ey + 1, 3, 3, C.white); rect(bx + 8 + off, ey + 1, 3, 3, C.white);
       rect(bx + 2 + off + p, ey + 2, 2, 2, C.black); rect(bx + 8 + off + p, ey + 2, 2, 2, C.black);
       rect(bx + 2 + off, ey - 1, 4, 1, C.black); rect(bx + 7 + off, ey - 1, 4, 1, C.black);
   }
 }
 
-// A simple walking blob enemy (14x14)
 function drawEnemySprite(e, camX) {
   const x = Math.round(e.x - camX), y = Math.round(e.y);
   if (!e.alive) { rect(x, y + 10, 14, 4, C.purple); rect(x + 2, y + 11, 3, 1, C.white); rect(x + 9, y + 11, 3, 1, C.white); return; }
   const step = Math.floor(Game.tick / 8) % 2;
   rect(x + 1, y, 12, 1, C.black); rect(x, y + 1, 14, 9, C.black);
   rect(x + 1, y + 1, 12, 8, C.purple);
-  rect(x + 2, y + 2, 3, 1, C.cyan);                          // shine
+  rect(x + 2, y + 2, 3, 1, C.cyan);
   rect(x + 3, y + 4, 3, 3, C.white); rect(x + 8, y + 4, 3, 3, C.white);
   const look = e.vx > 0 ? 1 : 0;
   rect(x + 3 + look, y + 5, 2, 2, C.black); rect(x + 8 + look, y + 5, 2, 2, C.black);
-  rect(x + 3, y + 3, 4, 1, C.black); rect(x + 7, y + 3, 4, 1, C.black);   // angry brows
-  rect(x + (step ? 0 : 2), y + 10, 5, 4, C.dkgrey);          // two shuffling feet
+  rect(x + 3, y + 3, 4, 1, C.black); rect(x + 7, y + 3, 4, 1, C.black);
+  rect(x + (step ? 0 : 2), y + 10, 5, 4, C.dkgrey);
   rect(x + (step ? 9 : 7), y + 10, 5, 4, C.dkgrey);
 }
 
-// A spinning coin, centred at (cx, cy)
 function drawCoinSprite(cx, cy, phase) {
   const f = Math.floor(Game.tick / 8 + phase) % 4;
   const ow = [8, 6, 4, 6][f];
@@ -710,14 +585,13 @@ function drawCoinSprite(cx, cy, phase) {
   if (ow >= 6) rect(cx - ow / 2 + 2, cy - 3, 1, 3, C.white);
 }
 
-// A 9x9 pixel star. kind: 0 = empty, 1 = silver, 2 = gold.
 const STAR_ART = ['....#....','....#....','...###...','#########','.#######.','..#####..','..##.##..','.##...##.','.#.....#.'];
 function drawStar(x, y, kind, scale = 1) {
   const top = kind === 2 ? C.yellow : kind === 1 ? C.white : C.dkgrey;
   const bot = kind === 2 ? C.gold   : kind === 1 ? C.grey  : C.dkgrey;
   for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
     if (STAR_ART[r][c] === '#') {
-      rect(x + c * scale + scale, y + r * scale + scale, scale, scale, C.black);     // drop shadow
+      rect(x + c * scale + scale, y + r * scale + scale, scale, scale, C.black);
     }
   }
   for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
@@ -726,31 +600,28 @@ function drawStar(x, y, kind, scale = 1) {
 }
 const starKind = (pct, i) => pct >= 100 ? 2 : (pct >= STAR_STEPS[i] ? 1 : 0);
 
-// A 16x32 gate. kind 'entry' (wooden door), 'exit' (blue portal) or 'secret' (purple % portal).
-// (x, y) = bottom-left corner of the gate. state: 'closed' | 'open' | 'red' | 'gold'
 function drawGate(x, y, kind, state) {
   x = Math.round(x); y = Math.round(y);
   const top = y - 32;
   let door = kind === 'entry' ? C.dkbrown : kind === 'secret' ? C.purple : C.blue;
   if (state === 'open') door = C.black;
   if (state === 'gold') door = (Game.tick >> 2) & 1 ? C.yellow : C.white;
-  if (state === 'red')  door = (Game.tick >> 2) & 1 ? C.red : C.white;       // the failure flash!
+  if (state === 'red')  door = (Game.tick >> 2) & 1 ? C.red : C.white;
   rect(x + 3, top + 4, 10, 28, door);
   if (kind === 'entry' && state !== 'open') { rect(x + 8, top + 4, 1, 28, C.black); rect(x + 10, top + 18, 2, 2, C.yellow); }
   if (kind === 'exit' && state === 'closed') drawGlyphs('>', x + 6, top + 14, C.white, 1);
   if (kind === 'secret' && state === 'closed') {
     drawGlyphs('%', x + 6, top + 14, C.white, 1);
-    if ((Game.tick >> 3) % 2) rect(x + 7, top - 4, 2, 2, C.cyan);              // a little twinkle: "something's special here"
+    if ((Game.tick >> 3) % 2) rect(x + 7, top - 4, 2, 2, C.cyan);
   }
-  rect(x, top + 2, 3, 30, C.grey);  rect(x + 13, top + 2, 3, 30, C.grey);    // stone pillars
+  rect(x, top + 2, 3, 30, C.grey);  rect(x + 13, top + 2, 3, 30, C.grey);
   rect(x, top + 2, 1, 30, C.white); rect(x + 13, top + 2, 1, 30, C.white);
   rect(x + 2, top + 2, 1, 30, C.dkgrey); rect(x + 15, top + 2, 1, 30, C.dkgrey);
   rect(x - 1, top, 18, 4, C.grey); rect(x - 1, top, 18, 1, C.white); rect(x - 1, top + 3, 18, 1, C.dkgrey);
 }
 
-// ---- Backgrounds ---------------------------------------------------------
 function drawHill(cx, baseY, rx, h, color) {
-  for (let dy = 0; dy < h; dy++) {                              // draw the hill one pixel row at a time
+  for (let dy = 0; dy < h; dy++) {
     const u = (dy + 1) / h;
     const hw = Math.round(rx * Math.sqrt(1 - (1 - u) * (1 - u)));
     rect(cx - hw, baseY - h + dy, hw * 2, 1, color);
@@ -765,30 +636,23 @@ function drawCloud(x, y, color = C.white, shade = C.cyan) {
   rect(x, y + 8, 32, 4, color);  rect(x + 2, y + 12, 28, 1, shade);
 }
 
-// Sky scene helpers. A colour band that starts at y, with a chunky NES-style dithered top edge.
 function skyBand(y, color) {
   for (let r = 0; r < 8; r += 2) for (let x = r % 4; x < SCREEN_W; x += 4) rect(x, y + r, 2, 2, color);
   rect(0, y + 8, SCREEN_W, SCREEN_H - y - 8, color);
 }
-// Three layers of clouds (far, middle, near). par = how much they follow the camera,
-// drift = how fast they float by on their own, wrap = distance before a cloud repeats,
-// n = how many clouds, y0/span = vertical range.
 const CLOUD_LAYERS = [
   { par: 0.12, drift: 0.03, wrap: 480, n: 8, y0: 16, span: 110, color: C.cyan,  shade: C.sky  },
   { par: 0.30, drift: 0.06, wrap: 420, n: 6, y0: 30, span: 150, color: C.white, shade: C.cyan },
   { par: 0.55, drift: 0.10, wrap: 560, n: 5, y0: 40, span: 160, color: C.white, shade: C.cyan }
 ];
 
-// ---- Pine trees (for the 'pine' background) ----------------------------------
-// One pixel-art pine: a trunk plus 4 stacked triangles. (x, baseY) = bottom centre of the trunk.
-// leaf = main colour, shade = darker colour for the right-hand half, trunk = trunk colour.
 function drawPine(x, baseY, leaf, shade, trunk) {
   x = Math.round(x);
   rect(x - 2, baseY - 4, 4, 4, trunk);
-  for (let t = 0; t < 5; t++) {                       // t = 0 is the bottom (widest) tier
+  for (let t = 0; t < 5; t++) {
     const bottom = baseY - 4 - t * 8;
-    const maxHalf = 14 - t * 2;                       // half-width of this tier at its base
-    for (let r = 0; r < 10; r++) {                    // draw the tier one pixel row at a time
+    const maxHalf = 14 - t * 2;
+    for (let r = 0; r < 10; r++) {
       const half = Math.max(1, Math.round(maxHalf * (1 - r / 10)));
       rect(x - half, bottom - r - 1, half * 2, 1, leaf);
       rect(x, bottom - r - 1, half, 1, shade);
@@ -796,14 +660,12 @@ function drawPine(x, baseY, leaf, shade, trunk) {
   }
 }
 
-// A scrolling row of SPARSE pines. par = parallax (smaller = further away, moves slower),
-// spacing = pixels between tree slots (bigger = fewer trees). Some slots are skipped on purpose.
 function drawPineLayer(camX, par, spacing, baseY, leaf, shade, trunk) {
   const scroll = camX * par;
   const first = Math.floor(scroll / spacing) - 1;
   for (let i = first; i < first + Math.ceil(SCREEN_W / spacing) + 3; i++) {
-    if ((((i * 7) % 5) + 5) % 5 === 0) continue;                // skip about 1 slot in 5
-    const jitter = (((i * 37) % 23) + 23) % 23;                 // nudge each tree so they are not evenly spaced
+    if ((((i * 7) % 5) + 5) % 5 === 0) continue;
+    const jitter = (((i * 37) % 23) + 23) % 23;
     drawPine(i * spacing + jitter - scroll, baseY, leaf, shade, trunk);
   }
 }
@@ -814,24 +676,23 @@ function drawBackground(theme, camX) {
     for (const [cx, cy] of [[20, 28], [120, 48], [200, 20], [290, 52], [350, 30]]) {
       drawCloud(((cx - camX * 0.3) % 400 + 400) % 400 - 60, cy);
     }
-    drawHillLayer(camX * 0.25, 208, C.cyan,    80, 48, 200);   // far hills move slowly = depth
-    drawHillLayer(camX * 0.5,  208, C.dkgreen, 56, 32, 140);   // near hills move faster
+    drawHillLayer(camX * 0.25, 208, C.cyan,    80, 48, 200);
+    drawHillLayer(camX * 0.5,  208, C.dkgreen, 56, 32, 140);
   } else if (theme === 'pine') {
     rect(0, 0, SCREEN_W, SCREEN_H, C.mist);
-    skyBand(150, C.fog);                    // optional: darker band toward the ground
+    skyBand(150, C.fog);
     for (const [cx, cy] of [[20, 28], [120, 48], [200, 20], [290, 52], [350, 30]]) {
       drawCloud(((cx - camX * 0.3) % 400 + 400) % 400 - 60, cy);
     }
-    drawPineLayer(camX, 0.30, 100, 210, C.dkgreen, C.black,   C.dkbrown);   // far trees
-    drawPineLayer(camX, 0.55, 150, 214, C.green,   C.dkgreen, C.brown);     // near trees
+    drawPineLayer(camX, 0.30, 100, 210, C.dkgreen, C.black,   C.dkbrown);
+    drawPineLayer(camX, 0.55, 150, 214, C.green,   C.dkgreen, C.brown);
   } else if (theme === 'sky') {
-    // Open sky: three bands of blue and drifting clouds. No hills at all.
     rect(0, 0, SCREEN_W, SCREEN_H, C.blue);
     skyBand(56, C.sky);
     skyBand(150, C.cyan);
     CLOUD_LAYERS.forEach((L, li) => {
       for (let i = 0; i < L.n; i++) {
-        const base = i * L.wrap / L.n + (i * 53 + li * 17) % 41;                       // spread them out, a bit uneven
+        const base = i * L.wrap / L.n + (i * 53 + li * 17) % 41;
         const x = (((base - camX * L.par - Game.tick * L.drift) % L.wrap) + L.wrap) % L.wrap - 60;
         drawCloud(Math.round(x), L.y0 + (i * 71 + li * 29) % L.span, L.color, L.shade);
       }
@@ -839,16 +700,16 @@ function drawBackground(theme, camX) {
   } else if (theme === 'cave') {
     rect(0, 0, SCREEN_W, SCREEN_H, C.black);
     const k = Math.floor(camX * 0.5 / 44);
-    for (let i = 0; i < 8; i++) {                                // stalactites
+    for (let i = 0; i < 8; i++) {
       const idx = i + k, x = idx * 44 - camX * 0.5, h = 16 + ((idx * 53) % 28 + 28) % 28;
       for (let dy = 0; dy < h; dy++) rect(x - Math.round(9 * (1 - dy / h)), 32 + dy, Math.round(9 * (1 - dy / h)) * 2, 1, C.dkgrey);
     }
-    for (let i = 0; i < 16; i++) {                               // twinkling crystals
+    for (let i = 0; i < 16; i++) {
       const px = (((i * 97 + 13) % 380) - camX * 0.6) % 380, py = 50 + (i * 57) % 150;
       if (((Game.tick >> 4) + i) % 3 !== 0) rect(((px % 380) + 380) % 380 - 60, py, 2, 2, i % 2 ? C.cyan : C.purple);
     }
   } else {
-    rect(0, 0, SCREEN_W, SCREEN_H, C.black);                     // castle: brick wall + lava
+    rect(0, 0, SCREEN_W, SCREEN_H, C.black);
     for (let r = 0; r < 13; r++) {
       const y = 32 + r * 16;
       rect(0, y, SCREEN_W, 1, C.dkgrey);
@@ -859,65 +720,6 @@ function drawBackground(theme, camX) {
     for (let x = -8; x < SCREEN_W; x += 8) rect(x + ((Game.tick >> 3) % 8), 224, 4, 2, C.orange);
   }
 }
-
-
-/* =========================================================================
-   5. LEVEL DATA  -  HOW TO MAKE A LEVEL FROM SCRATCH
-   -------------------------------------------------------------------------
-   A level is one object in the LEVELS list below:
-
-     { id: '1-1', name: 'GREEN MEADOW', theme: 'day', rows: [ "....", "...." ] }
-
-     id     unique text label. Shown in the HUD; a map node points at it
-            (a node says  level: '1-1').
-     name   shown when the level starts and on the map. Use CAPITALS, 0-9 and
-            the symbols  . : ! % / - + ' ? , > <  (all the pixel font has).
-     theme  'day' (grass + hills), 'cave' (purple + crystals), 'castle' (stone + lava)
-            or 'sky' (open sky with clouds only - ground and platforms look like clouds).
-            An unknown theme name falls back to 'day' and warns in the console.
-     rows   the level itself: one text string per tile row, like a picture.
-
-   STEP BY STEP
-     1. Pick a width. Rows can be as long as you like (at least 16 tiles,
-        64-200 is typical). Short rows are padded with '.' on the right.
-     2. A level is 15 rows tall (one screen). If you write fewer rows, the
-        missing ones are added at the TOP - so you only need to write the
-        interesting bottom part (the last 6 rows is enough for a flat level).
-     3. Draw the floor with '#'. The auto-tiler adds grass, edges and corners
-        for you, so never draw those by hand. Leave gaps in the floor for
-        pits (falling out of the bottom = death).
-     4. Place exactly ONE 'S' (start) and ONE 'E' (exit). Each marks the BOTTOM
-        of its door, so put it in the row directly above the floor it stands on,
-        and keep the 2 tiles above it empty (doors are 2 tiles tall).
-     5. Add 'e' enemies and '^' spikes the same way - on the row just above the
-        floor. Scatter 'o' coins anywhere (high ones make players jump).
-        Enemies on a thin platform ('-') walk off its ends and fall.
-     5b. Optional SECRET EXIT: put a '%' in the same way as 'E' (bottom of the door,
-        2 empty tiles above). Hide it somewhere hard to reach! Reaching it clears the
-        level just like E (same coin rule) and also marks the level "secret found",
-        which can reveal hidden map nodes (see 'secretExit' in section 7). You can
-        place more than one '%'.
-     6. Use 'B' for solid bricks and '-' for thin platforms (jump up through
-        them; Down + Jump drops through).
-     7. Add the object to LEVELS (copy the example), then give it a node on the
-        world map in section 7 so players can reach it.
-
-   LEGEND
-     .  empty air                 #  solid ground (auto-tiled!)
-     B  brick block (solid)       -  thin platform
-     ^  spikes (deadly)           o  coin
-     e  walking enemy             S  start / entry gate
-     E  exit gate                 %  SECRET exit gate (optional)
-     (a space counts as '.')
-
-   DESIGN TIPS
-     - A normal jump clears ~4 tiles up and ~6 tiles across (running goes further).
-       Keep pits <= 5 tiles wide and ledges <= 3 tiles high for walking jumps.
-     - Players need CLEAR_PERCENT % of the coins to clear a level, and earn stars at
-       STAR_STEPS %, so put in enough coins (20-60 is a good range). 0 coins = free clear.
-     - Enemies turn around at walls, solid-ground ledges and spikes, but walk
-       straight off the end of a thin platform.
-   ========================================================================= */
 
 const LEVELS = [
     { id: '1-1', name: 'FIRST STEPS', theme: 'day', rows: [
@@ -1095,10 +897,9 @@ const LEVELS = [
 const LEVEL_BY_ID = {};
 LEVELS.forEach(l => LEVEL_BY_ID[l.id] = l);
 
-// Turn the text rows into a playable level object.
 function parseLevel(def) {
   const rows = def.rows.slice();
-  while (rows.length < ROWS) rows.unshift('');                  // pad missing rows at the top
+  while (rows.length < ROWS) rows.unshift('');
   const w = Math.max(...rows.map(r => r.length));
   let theme = def.theme;
   if (!THEMES[theme]) { console.warn('Level ' + def.id + ' has unknown theme "' + theme + '" - using "day"'); theme = 'day'; }
@@ -1109,7 +910,6 @@ function parseLevel(def) {
     const line = [];
     for (let col = 0; col < w; col++) {
       let ch = str[col] || '.';
-      // Things that are NOT tiles get pulled out into their own lists:
       if (ch === 'o') { level.coins.push({ col, row, got: false }); ch = '.'; }
       else if (ch === 'e') { level.enemies.push({ col, row }); ch = '.'; }
       else if (ch === 'S') { level.start = { col, row }; ch = '.'; }
@@ -1124,7 +924,6 @@ function parseLevel(def) {
   if (!level.start) { console.warn('Level ' + def.id + ' has no S (start) tile'); level.start = { col: 1, row: ROWS - 3 }; }
   if (!level.exit)  { console.warn('Level ' + def.id + ' has no E (exit) tile');  level.exit  = { col: w - 2, row: ROWS - 3 }; }
 
-  // Run the auto-tiler once per tile and remember the answer.
   for (let row = 0; row < level.h; row++) {
     const vline = [];
     for (let col = 0; col < level.w; col++) {
@@ -1137,12 +936,6 @@ function parseLevel(def) {
   return level;
 }
 
-
-/* =========================================================================
-   6. PHYSICS & COLLISION
-   ========================================================================= */
-
-// What tile is at this grid position? Beyond the left/right edges is a solid wall.
 function tileAt(level, col, row) {
   if (col < 0 || col >= level.w) return '#';
   if (row < 0 || row >= level.h) return '.';
@@ -1150,7 +943,6 @@ function tileAt(level, col, row) {
 }
 const isSolid = ch => ch === '#' || ch === 'B';
 
-// Does a box overlap any solid tile?
 function boxHitsSolid(level, x, y, w, h) {
   const c0 = Math.floor(x / TILE), c1 = Math.floor((x + w - 0.001) / TILE);
   const r0 = Math.floor(y / TILE), r1 = Math.floor((y + h - 0.001) / TILE);
@@ -1158,21 +950,15 @@ function boxHitsSolid(level, x, y, w, h) {
   return false;
 }
 
-// Thin platforms only block you when you are falling onto their top surface.
 function boxLandsOnPlatform(level, x, w, prevBottom, newBottom) {
   const row = Math.floor((newBottom - 0.001) / TILE);
   if (row < 0 || row >= level.h) return false;
-  if (prevBottom > row * TILE + 0.01) return false;            // we were already inside/below it
+  if (prevBottom > row * TILE + 0.01) return false;
   const c0 = Math.floor(x / TILE), c1 = Math.floor((x + w - 0.001) / TILE);
   for (let c = c0; c <= c1; c++) if (tileAt(level, c, row) === '-') return true;
   return false;
 }
 
-/* Move horizontally. We step at most 1 pixel at a time, so a fast mover can
-   never skip through a wall. When we touch a wall we snap EXACTLY flush to it
-   (that is what gives the crisp, jitter-free "pixel perfect" stop).
-   Returns -1 / 1 if we hit a wall on that side, else 0. Fractions are kept
-   (sub-pixel precision) for smooth slow acceleration. */
 function moveX(e, level, amount) {
   let remaining = amount;
   while (Math.abs(remaining) > 0.0001) {
@@ -1187,7 +973,6 @@ function moveX(e, level, amount) {
   return 0;
 }
 
-// Move vertically. Returns +1 if we landed on something, -1 if we bonked our head.
 function moveY(e, level, amount) {
   let remaining = amount;
   while (Math.abs(remaining) > 0.0001) {
@@ -1197,8 +982,8 @@ function moveY(e, level, amount) {
       blocked = boxLandsOnPlatform(level, e.x, e.w, e.y + e.h, ny + e.h);
     }
     if (blocked) {
-      if (step > 0) e.y = Math.floor((ny + e.h - 0.001) / TILE) * TILE - e.h;   // stand on top
-      else          e.y = (Math.floor(ny / TILE) + 1) * TILE;                   // hit the ceiling
+      if (step > 0) e.y = Math.floor((ny + e.h - 0.001) / TILE) * TILE - e.h;
+      else          e.y = (Math.floor(ny / TILE) + 1) * TILE;
       return Math.sign(step);
     }
     e.y += step; remaining -= step;
@@ -1206,14 +991,12 @@ function moveY(e, level, amount) {
   return 0;
 }
 
-// Which side (if any) is a wall touching us right now? (1 = right, -1 = left)
 function wallProbe(level, p) {
   if (boxHitsSolid(level, p.x + 1, p.y, p.w, p.h)) return 1;
   if (boxHitsSolid(level, p.x - 1, p.y, p.w, p.h)) return -1;
   return 0;
 }
 
-// Is the player standing on a thin platform (and NOT on solid ground)?
 function standingOnPlatform(level, p) {
   const row = Math.floor((p.y + p.h + 0.5) / TILE);
   const c0 = Math.floor(p.x / TILE), c1 = Math.floor((p.x + p.w - 0.001) / TILE);
@@ -1230,21 +1013,20 @@ function touchesHazard(level, p) {
   const c0 = Math.floor(p.x / TILE), c1 = Math.floor((p.x + p.w) / TILE);
   const r0 = Math.floor(p.y / TILE), r1 = Math.floor((p.y + p.h) / TILE);
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
-    const t = tileAt(level, c, r);        // what kind of tile is here?
-    if (t === '^' && aabb(p.x, p.y, p.w, p.h, c * TILE + 3, r * TILE + 7, 10, 9)) return true;   // floor spikes
-    if (t === 'v' && aabb(p.x, p.y, p.w, p.h, c * TILE + 3, r * TILE,     10, 9)) return true;   // ceiling spikes
+    const t = tileAt(level, c, r);
+    if (t === '^' && aabb(p.x, p.y, p.w, p.h, c * TILE + 3, r * TILE + 7, 10, 9)) return true;
+    if (t === 'v' && aabb(p.x, p.y, p.w, p.h, c * TILE + 3, r * TILE,     10, 9)) return true;
   }
   return false;
 }
 
-/* ---- The player --------------------------------------------------------- */
 const Player = {
-  x: 0, y: 0, w: 14, h: 14,          // position and hitbox (14x14 square)
-  vx: 0, vy: 0,                      // speed in pixels per frame
+  x: 0, y: 0, w: 14, h: 14,
+  vx: 0, vy: 0,
   onGround: false, facing: 1,
   coyote: 0, jumpBuffer: 0, dropTimer: 0,
-  edgeLock: 0, lockDir: 0, wallSide: 0,   // used by the wall edge-lock mechanic
-  sx: 1, sy: 1                       // squash & stretch for juicy animation
+  edgeLock: 0, lockDir: 0, wallSide: 0,
+  sx: 1, sy: 1
 };
 
 function resetPlayer(level) {
@@ -1256,15 +1038,6 @@ function resetPlayer(level) {
   p.sx = p.sy = 1;
 }
 
-/* ---- FRAME-PERFECT WALL EDGE-LOCK (SMB1 style) -----------------------------
-   The moment you FIRST touch a wall while holding towards it, we:
-     1. throw away your sideways speed completely,
-     2. lock your position to the exact whole pixel flush against the wall,
-     3. ignore "push into the wall" input for EDGE_LOCK_FRAMES frames.
-   Result: no vibrating against walls, no sneaking inside blocks, and every
-   jump that starts next to a wall behaves exactly the same (frame-perfect).
-   It only triggers on INITIAL contact - hold the key and keep walking along a
-   wall and nothing special happens until you let go and touch again. */
 function edgeLockOnContact(p, side) {
   p.vx = 0;
   p.x = Math.round(p.x);
@@ -1272,7 +1045,6 @@ function edgeLockOnContact(p, side) {
   p.lockDir = side;
 }
 
-// Safety net: if we are somehow stuck inside a block, nudge out the nearest way.
 function pushOut(p, level) {
   for (let d = 1; d <= 4; d++) for (const dx of [d, -d]) {
     if (!boxHitsSolid(level, p.x + dx, p.y, p.w, p.h)) { p.x += dx; return; }
@@ -1287,51 +1059,44 @@ function updatePlayer(level) {
   const left = Input.down('left'), right = Input.down('right'), run = Input.down('run');
   let dir = (right ? 1 : 0) - (left ? 1 : 0);
 
-  // -- edge lock: ignore pushing into the wall for a couple of frames
   if (p.edgeLock > 0) { p.edgeLock--; if (dir === p.lockDir) dir = 0; }
 
-  // -- horizontal acceleration (classic NES feel: slow build-up, momentum)
   const maxSpeed = run ? PHYS.MAX_RUN : PHYS.MAX_WALK;
   const accel    = run ? PHYS.RUN_ACCEL : PHYS.WALK_ACCEL;
   if (dir !== 0) {
     p.facing = dir;
-    if (p.vx * dir < 0) p.vx += dir * PHYS.SKID;                         // turning around = skid
+    if (p.vx * dir < 0) p.vx += dir * PHYS.SKID;
     else if (Math.abs(p.vx) < maxSpeed) {
       p.vx += dir * accel;
       if (Math.abs(p.vx) > maxSpeed) p.vx = dir * maxSpeed;
-    } else if (p.onGround) {                                             // let go of run -> ease down
+    } else if (p.onGround) {
       p.vx -= dir * PHYS.FRICTION;
       if (Math.abs(p.vx) < maxSpeed) p.vx = dir * maxSpeed;
     }
-  } else if (p.onGround) {                                               // no input -> friction
+  } else if (p.onGround) {
     if (Math.abs(p.vx) <= PHYS.FRICTION) p.vx = 0; else p.vx -= Math.sign(p.vx) * PHYS.FRICTION;
   }
-  // (In the air with no input we keep our momentum, like the original.)
 
-  // -- jumping (with a little "coyote time" and "jump buffer" forgiveness)
   if (Input.pressed('jump')) p.jumpBuffer = PHYS.JUMP_BUFFER;
   if (p.onGround) p.coyote = PHYS.COYOTE; else if (p.coyote > 0) p.coyote--;
 
-  if (p.onGround && Input.down('down') && Input.pressed('jump') && standingOnPlatform(level, p)) {
-    p.dropTimer = 10; p.y += 1; p.onGround = false; p.jumpBuffer = 0; p.coyote = 0;   // drop through
+  if (p.onGround && Input.pressed('down') && standingOnPlatform(level, p)) {
+    p.dropTimer = 10; p.y += 1; p.onGround = false; p.jumpBuffer = 0; p.coyote = 0;
   }
   if (p.jumpBuffer > 0 && p.coyote > 0) {
-    p.vy = -(PHYS.JUMP_VEL + Math.abs(p.vx) * PHYS.JUMP_BONUS);          // faster = higher jump
+    p.vy = -(PHYS.JUMP_VEL + Math.abs(p.vx) * PHYS.JUMP_BONUS);
     p.onGround = false; p.coyote = 0; p.jumpBuffer = 0;
-    p.sx = 0.8; p.sy = 1.25;                                             // stretch!
+    p.sx = 0.8; p.sy = 1.25;
     Sfx.jump();
   } else if (p.jumpBuffer > 0) p.jumpBuffer--;
 
-  // -- gravity: light while rising with jump held, heavy otherwise (variable jump height)
   const g = (p.vy < 0 && Input.down('jump')) ? PHYS.GRAV_HELD : PHYS.GRAV_FALL;
   const prevVy = p.vy;
   p.vy = Math.min(p.vy + g, PHYS.MAX_FALL);
 
-  // -- move: X first, then Y (just like the NES)
   if (p.dropTimer > 0) p.dropTimer--;
   if (moveX(p, level, p.vx) !== 0) p.vx = 0;
 
-  // wall edge-lock on INITIAL contact only
   const side = wallProbe(level, p);
   const holding = (side > 0 && right) || (side < 0 && left);
   if (side !== 0 && holding && p.wallSide !== side) edgeLockOnContact(p, side);
@@ -1341,17 +1106,13 @@ function updatePlayer(level) {
   const wasGround = p.onGround;
   p.onGround = hitY > 0;
   if (hitY !== 0) p.vy = 0;
-  if (p.onGround && !wasGround && prevVy > 2.5) { p.sx = 1.25; p.sy = 0.75; }   // landing squash
+  if (p.onGround && !wasGround && prevVy > 2.5) { p.sx = 1.25; p.sy = 0.75; }
 
   if (boxHitsSolid(level, p.x, p.y, p.w, p.h)) pushOut(p, level);
 
-  // squash & stretch relaxes back to normal
   p.sx += (1 - p.sx) * 0.25; p.sy += (1 - p.sy) * 0.25;
 }
 
-/* ---- Enemies: walk back and forth, turn at walls, ledges and spikes ------
-   Exception: an enemy standing on a THIN platform ('-') does not turn at the
-   edge - it walks straight off and falls (it still turns at walls and spikes). */
 function updateEnemy(e, level) {
   if (!e.alive) { if (e.deadT > 0) e.deadT--; return; }
   e.vy = Math.min(e.vy + 0.3, 4);
@@ -1361,8 +1122,8 @@ function updateEnemy(e, level) {
     const col = Math.floor(frontX / TILE);
     const tFoot = tileAt(level, col, Math.floor((e.y + e.h + 2) / TILE));
     const tBody = tileAt(level, col, Math.floor((e.y + e.h - 3) / TILE));
-    if (tBody === '^') flip = true;                                       // spikes ahead
-    else if (!(isSolid(tFoot) || tFoot === '-') && !standingOnPlatform(level, e)) flip = true;   // ledge ahead (solid ground only)
+    if (tBody === '^') flip = true;
+    else if (!(isSolid(tFoot) || tFoot === '-') && !standingOnPlatform(level, e)) flip = true;
   }
   if (flip) e.vx = -e.vx;
   const hitY = moveY(e, level, e.vy);
@@ -1370,14 +1131,6 @@ function updateEnemy(e, level) {
   if (hitY !== 0) e.vy = 0;
   if (e.y > level.h * TILE + 40) e.alive = false;
 }
-
-
-/* =========================================================================
-   7. GAME STATES   (Title -> Map -> Level -> Tally -> Map ...)
-   -------------------------------------------------------------------------
-   Every state is an object with enter(), update() and draw().
-   changeState('map') switches between them.
-   ========================================================================= */
 
 const Game = {
   state: null, name: '', tick: 0, debug: false, deaths: 0, fps: 60,
@@ -1387,12 +1140,11 @@ const STATES = {};
 
 function changeState(name, args) {
   Game.name = name;
-  document.body.dataset.screen = name;          // lets the CSS show title-only buttons (COLOR / FACE)
+  document.body.dataset.screen = name;
   Game.state = STATES[name];
   Game.state.enter(args);
 }
 
-// Fade to black, run cb() (usually changeState), then fade back in.
 function fadeTo(cb) {
   if (Game.fade.phase !== 'none') return;
   Game.fade = { phase: 'out', t: 0, cb };
@@ -1403,20 +1155,19 @@ function updateFade() {
   f.t++;
   if (f.phase === 'out' && f.t >= 12) { f.cb(); f.phase = 'in'; f.t = 0; }
   else if (f.phase === 'in' && f.t >= 12) f.phase = 'none';
-  return true;                                    // true = the state should stay frozen
+  return true;
 }
 function drawFade() {
   const f = Game.fade;
   if (f.phase === 'none') return;
   const a = f.phase === 'out' ? f.t / 12 : 1 - f.t / 12;
-  ctx.globalAlpha = Math.ceil(clamp(a, 0, 1) * 4) / 4;      // 4 steps = chunky NES-style fade
+  ctx.globalAlpha = Math.ceil(clamp(a, 0, 1) * 4) / 4;
   rect(0, 0, SCREEN_W, SCREEN_H, C.black);
   ctx.globalAlpha = 1;
 }
 
 function blink(rate = 30) { return Math.floor(Game.tick / rate) % 2 === 0; }
 
-/* ---- TITLE SCREEN ------------------------------------------------------- */
 STATES.title = {
   enter() { this.msg = ''; },
   update() {
@@ -1431,7 +1182,6 @@ STATES.title = {
     rect(0, 208, SCREEN_W, 32, C.brown); rect(0, 208, SCREEN_W, 4, C.green); rect(0, 212, SCREEN_W, 1, C.dkgreen);
     drawText('SQUARE QUEST', 128, 40, C.yellow, 4, 'center');
     drawText('AN 8-BIT PLATFORMER', 128, 70, C.white, 1, 'center');
-    // the square bounces on the ground, wearing the chosen look
     const bounce = Math.abs(Math.sin(Game.tick / 14)) * 22;
     drawPlayerSprite(121, 194 - bounce, 14, 14, Save.color, Save.face, 1,
                      1 - (bounce < 2 ? 0.1 : 0), 1 + (bounce < 2 ? 0.1 : 0));
@@ -1443,7 +1193,7 @@ STATES.title = {
     }
     if (blink()) drawText(hintStart(), 128, 140, C.white, 2, 'center');
     if (Touch.enabled) {
-      drawText('D-PAD MOVE   A JUMP   B RUN', 128, 224, C.white, 1, 'center');
+      drawText('D-PAD MOVE / DOUBLE-TAP RUN   A JUMP', 128, 224, C.white, 1, 'center');
     } else {
       drawText(CONTROLS.label + ' MOVE  SPACE JUMP  X RUN', 128, 224, C.white, 1, 'center');
       drawText(CONTROLS.debugLabel + ': DEBUG   M: MUTE   R: RESET SAVE', 128, 232, C.grey, 1, 'center');
@@ -1452,71 +1202,7 @@ STATES.title = {
   }
 };
 
-/* ---- WORLD MAP  -  HOW TO BUILD A WORLD FROM SCRATCH -------------------------
-   The map is a little graph of NODES (stops) joined by LINKS (paths).
-   Each world is one object in the WORLDS list:
-
-     { name: 'WORLD 1', bg: C.green, dots: C.dkgreen, deco: 'tree', nodes: [ ... ] }
-
-     name    shown top-left (keep it under ~12 letters)
-     bg      background colour of the map (any colour from the palette C)
-     dots    colour of the little texture dots on the background
-     deco    scenery scattered around: 'tree', 'crystal' or 'cloud'
-     width, height   (optional) make the map at least this many pixels big
-     nodes   the stops - see below
-
-   THE MAP SCROLLS, SO A WORLD CAN HOLD AS MANY LEVELS AS YOU LIKE.
-   One screen is 256 x 240 pixels, but a node's x / y can be any number
-   (hundreds, thousands, even negative). The camera follows the little square
-   as it walks and stops at the outer edge of your nodes plus a margin. Small
-   arrows appear at the screen edges when there is more map in that direction.
-   So a 20-level world is just a longer, taller or winding path of nodes.
-   Spacing tip: 50-70 pixels between neighbours looks good and leaves room for
-   the three mini stars under each level.
-
-   NODE TYPES (every node needs  id, type, x, y;  ids are unique inside a world)
-     { id: 'w1start', type: 'start', x: 24, y: 150, links: { right: '1-1' } }
-         where the player begins in that world. Give every world ONE start.
-     { id: '1-1', type: 'level', level: '1-1', x: 84, y: 150, links: { ... } }
-         a stage. 'level' must match an id in LEVELS (section 5).
-     { id: 'pipe', type: 'warp', x: 684, y: 150, warpTo: { world: 1, node: 'w2start' } }
-         a pipe to another world. world = its position in WORLDS counting from 0
-         (0 = first world, 1 = second ...); node = a node id inside that world.
-     { id: 'goal', type: 'goal', x: 900, y: 96 }
-         the end of the game: shows the congratulations screen.
-
-   OPTIONAL NODE SETTINGS
-     links   { up, down, left, right }  which node each ARROW KEY walks to.
-             Write only ONE end of a path - the way back is added for you
-             (unless you already wrote it). Paths are drawn as dotted lines,
-             and may be diagonal; each node has at most 4 exits.
-     after   ['1-1']  node stays locked (grey, '?') until ANY of these LEVEL
-             ids has been cleared. No 'after' = always open.
-     secret  { level: '1-2', minPct: 100 }  node is invisible until that level
-             has been beaten with at least minPct % of its coins (100 = gold).
-     secretExit  '1-2'  node is invisible until that level has been cleared through
-             its SECRET EXIT (a '%' tile in the level). Use it for a bonus level or
-             a warp pipe. A little cyan % appears on the level's map node once found.
-             Link the hidden node to the level like any other (links: ...) - the
-             path stays hidden until the secret is found.
-
-   STEP BY STEP
-     1. Make your levels first (section 5).
-     2. Add a world object to WORLDS and choose bg / dots / deco.
-     3. Add a 'start' node, then add one node per level, moving x up by ~60
-        each time (or change y to make the path wind). Link each node to the
-        next:  links: { right: 'next-id' }.
-     4. Lock levels in order with  after: ['previous-level-id'].
-     5. Branches: give one node two links (say up and right). Put
-        after: ['a', 'b'] on the node where they merge to open it when EITHER
-        branch is cleared.
-     6. End the world with a 'warp' to the next world, or a 'goal'.
-     7. Reload and walk it. Mistakes (unknown node ids, missing levels) are
-        listed in the browser console (F12).
-   Old saves are safe to keep: unknown worlds/nodes fall back to the first start.
-   ------------------------------------------------------------------------- */
 const WORLDS = [
-  // One { ... } object per world, separated by commas (see the guide above).
     { name: 'WORLD 1', bg: C.green, dots: C.dkgreen, deco: 'tree', nodes: [
         { id: 'w1start', type: 'start', x: 20,  y: 200, links: { right: '1-1' } },
         { id: '1-1', type: 'level', level: '1-1', x: 60, y: 200, links: { left: 'w1start', right: '1-2' } },
@@ -1548,7 +1234,6 @@ const WORLDS = [
     ]},
 ];
 
-// ---- Prepare the worlds (you never need to edit this part) -----------------
 const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
 WORLDS.forEach((w, wi) => {
   w.nodes = w.nodes || []; w.byId = {};
@@ -1561,34 +1246,25 @@ WORLDS.forEach((w, wi) => {
     for (const dir of Object.keys(n.links)) {
       const m = w.byId[n.links[dir]];
       if (!OPPOSITE[dir] || !m) { console.warn('World ' + (wi + 1) + ': node "' + n.id + '" has a bad link ' + dir + ' -> "' + n.links[dir] + '"'); delete n.links[dir]; continue; }
-      if (!m.links[OPPOSITE[dir]]) m.links[OPPOSITE[dir]] = n.id;     // the way back, for free
+      if (!m.links[OPPOSITE[dir]]) m.links[OPPOSITE[dir]] = n.id;
     }
   }
-  // How big is the map? Cover every node plus a margin (HUD bars need room top and bottom).
   let x0 = 0, y0 = 0, x1 = Math.max(SCREEN_W, w.width || 0), y1 = Math.max(SCREEN_H, w.height || 0);
   for (const n of w.nodes) { x0 = Math.min(x0, n.x - 28); x1 = Math.max(x1, n.x + 28); y0 = Math.min(y0, n.y - 50); y1 = Math.max(y1, n.y + 40); }
   w.bounds = { x0, y0, x1, y1 };
 });
 
-// A node with 'secret' and/or 'secretExit' stays hidden until ONE of them is satisfied.
 const nodeVisible = n => {
-  if (!n.secret && !n.secretExit) return true;                                   // not a secret node
+  if (!n.secret && !n.secretExit) return true;
   const byCoins = !!n.secret && (Save.best[n.secret.level] || 0) >= n.secret.minPct;
   const byExit  = !!n.secretExit && !!Save.secret[n.secretExit];
   return byCoins || byExit;
 };
 const countHiddenNodes = () => WORLDS.reduce((sum, w) => sum + w.nodes.filter(n => !nodeVisible(n)).length, 0);
-// Is the PATH between two linked nodes open? A node can list 'linkGates' for a neighbour:
-//   linkGates: { '1-3': { level: '1-9', minPct: 100 } }
-// = the path between this node and node '1-3' only exists once level 1-9 has been beaten
-// with at least 100% of its coins. It works in both directions (list it on either node).
 function linkOpen(a, b) {
   const gate = (a.linkGates && a.linkGates[b.id]) || (b.linkGates && b.linkGates[a.id]);
   return !gate || (Save.best[gate.level] || 0) >= gate.minPct;
 }
-// One entry of a node's 'after' list is met when:
-//   '2-4'      level 2-4 has been cleared
-//   '2-A@100'  level 2-A has been beaten with at least 100% of its coins (any number works: '@60', '@90'...)
 const afterMet = entry => {
   const [id, pct] = String(entry).split('@');
   return pct === undefined ? !!Save.cleared[id] : (Save.best[id] || 0) >= Number(pct);
@@ -1618,14 +1294,13 @@ STATES.map = {
     this.makeDeco();
     this.cam = { x: 0, y: 0 }; this.updateCamera(true);
   },
-  // Scatter trees/crystals around, but not on top of nodes or paths (seeded = always the same)
   makeDeco() {
     if (this.decoCache[this.world]) { this.deco = this.decoCache[this.world]; return; }
     const b = this.nodes.bounds;
     let seed = 1234 + this.world * 77;
     const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
     const list = [], nodes = this.nodes.nodes;
-    const want = Math.floor((b.x1 - b.x0) * (b.y1 - b.y0) / 1700);          // scenery grows with the map (~36 per screen)
+    const want = Math.floor((b.x1 - b.x0) * (b.y1 - b.y0) / 1700);
     for (let tries = 0; tries < want * 12 && list.length < want; tries++) {
       const x = b.x0 + 8 + Math.floor(rnd() * (b.x1 - b.x0 - 16)), y = b.y0 + 40 + Math.floor(rnd() * (b.y1 - b.y0 - 50));
       let ok = true;
@@ -1637,7 +1312,6 @@ STATES.map = {
     }
     this.deco = this.decoCache[this.world] = list.sort((a, b) => a.y - b.y);
   },
-  // The map camera: follows the little square, never leaves the map edges.
   updateCamera(snap) {
     const b = this.nodes.bounds;
     const tx = clamp(Math.round(this.pos.x - SCREEN_W / 2), b.x0, b.x1 - SCREEN_W);
@@ -1654,7 +1328,7 @@ STATES.map = {
       return;
     }
     const cur = this.nodes.byId[this.cur];
-    if (this.moving) {                                       // glide along the path
+    if (this.moving) {
       const m = this.moving, from = this.nodes.byId[m.from], to = this.nodes.byId[m.to];
       m.t += 2.2 / m.len;
       if (Game.tick % 8 === 0) Sfx.step();
@@ -1684,11 +1358,10 @@ STATES.map = {
     if (this.empty) { this.drawEmpty(); return; }
     const th = this.nodes, cx = Math.round(this.cam.x), cy = Math.round(this.cam.y);
     rect(0, 0, SCREEN_W, SCREEN_H, th.bg);
-    ctx.save(); ctx.translate(-cx, -cy);               // until restore(), everything is drawn in MAP coordinates
+    ctx.save(); ctx.translate(-cx, -cy);
     for (let y = Math.floor(cy / 8) * 8; y < cy + SCREEN_H; y += 8) {
       for (let x = Math.floor(cx / 8) * 8 + ((y / 8 % 2) + 2) % 2 * 4; x < cx + SCREEN_W; x += 8) rect(x, y, 1, 1, th.dots);
     }
-    // decorations
     for (const d of this.deco) {
       if (th.deco === 'tree') {
         rect(d.x - 1, d.y - 3, 2, 3, C.dkbrown);
@@ -1701,7 +1374,6 @@ STATES.map = {
         rect(d.x + 3, d.y - 5, 2, 5, C.purple);
       }
     }
-    // paths (dotted lines between linked nodes)
     const drawn = new Set();
     for (const n of th.nodes) for (const dir in n.links) {
       const m = th.byId[n.links[dir]];
@@ -1717,15 +1389,12 @@ STATES.map = {
         rect(n.x + (m.x - n.x) * t - 1, n.y + (m.y - n.y) * t - 1, 2, 2, open ? C.yellow : C.dkgrey);
       }
     }
-    // nodes
     for (const n of th.nodes) { if (nodeVisible(n)) this.drawNode(n); }
-    // the player marker
     const bob = Math.round(Math.sin(Game.tick / 8) * 2);
     drawPlayerSprite(this.pos.x - 7, this.pos.y - 24 + bob, 14, 14, Save.color, Save.face, 1);
-    rect(this.pos.x - 4, this.pos.y - 8, 8, 2, C.black);          // little shadow
-    ctx.restore();                                                // back to screen coordinates
+    rect(this.pos.x - 4, this.pos.y - 8, 8, 2, C.black);
+    ctx.restore();
     this.drawScrollArrows();
-    // HUD
     rect(0, 0, SCREEN_W, 20, C.black); rect(0, 20, SCREEN_W, 1, C.dkgrey);
     drawText(th.name, 8, 7, C.yellow, 2);
     let total = 0; for (const id in Save.best) total += Save.best[id] >= 100 ? 1 : 0;
@@ -1749,7 +1418,6 @@ STATES.map = {
       if (blink()) drawText(hintStart(), 128, 148, C.cyan, 1, 'center');
     }
   },
-  // Blinking arrows on the screen edges: "there is more map this way".
   drawScrollArrows() {
     const b = this.nodes.bounds, cam = this.cam, nudge = (Game.tick >> 4) & 1;
     const tri = (x, y, dir) => {
@@ -1785,9 +1453,9 @@ STATES.map = {
       rect(x - 8, y - 8, 16, 16, !unlocked ? C.dkgrey : cleared ? C.green : C.red);
       rect(x - 8, y - 8, 16, 2, !unlocked ? C.grey : cleared ? C.cyan : C.orange);
       drawText(unlocked ? n.level : '?', x, y - 2, C.white, 1, 'center');
-      const best = Save.best[n.level] || 0;                                   // mini stars underneath
+      const best = Save.best[n.level] || 0;
       if (cleared) for (let i = 0; i < 3; i++) drawStar(x - 14 + i * 10, y + 11, starKind(best, i), 1);
-      if (Save.secret[n.level]) drawText('%', x - 15, y - 14, C.white, 1);          // secret exit found here
+      if (Save.secret[n.level]) drawText('%', x - 15, y - 14, C.white, 1);
     } else if (n.type === 'warp') {
       rect(x - 9, y - 9, 18, 18, C.black); rect(x - 8, y - 6, 16, 14, C.green); rect(x - 10, y - 10, 20, 6, C.green);
       rect(x - 10, y - 10, 20, 1, C.cyan); rect(x - 6, y - 4, 12, 4, C.black); rect(x - 10, y - 5, 20, 1, C.dkgreen);
@@ -1802,8 +1470,6 @@ STATES.map = {
   }
 };
 
-/* ---- LEVEL GAMEPLAY ----------------------------------------------------------
-   Phases:  enter (door opens) -> play -> exit (gate reached) or dead          */
 const Camera = { x: 0 };
 
 STATES.level = {
@@ -1815,7 +1481,7 @@ STATES.level = {
   restart() {
     const L = this.level;
     this.phase = 'enter'; this.phaseT = 0; this.exitCalled = false; this.exitOK = false;
-    this.usedExit = null; this.usedSecret = false;       // which gate the player walked into
+    this.usedExit = null; this.usedSecret = false;
     this.collected = 0;
     L.coins.forEach(c => c.got = false);
     this.enemies = L.enemies.map(s => ({ x: s.col * TILE + 1, y: (s.row + 1) * TILE - 14, w: 14, h: 14,
@@ -1841,7 +1507,6 @@ STATES.level = {
     this.phaseT++;
     updateParticles(this.particles);
 
-    // BACK leaves the level at any time (intro, play, death) - except while a clear is being recorded.
     if (Input.pressed('back') && this.phase !== 'exit') { fadeTo(() => changeState('map')); return; }
 
     if (this.phase === 'enter') {
@@ -1850,7 +1515,7 @@ STATES.level = {
     }
 
     if (this.phase === 'dead') {
-      p.vy = Math.min(p.vy + 0.3, 6); p.y += p.vy;                  // the square tumbles off the screen
+      p.vy = Math.min(p.vy + 0.3, 6); p.y += p.vy;
       if (this.phaseT > 70 && !this.exitCalled) { this.exitCalled = true; fadeTo(() => this.restart()); }
       return;
     }
@@ -1862,19 +1527,16 @@ STATES.level = {
           const info = { levelId: L.id, name: L.name, collected: this.collected, total: this.total(), secret: this.usedSecret };
           fadeTo(() => changeState('tally', info));
         }
-      } else if (this.phaseT > 100 && !this.exitCalled) {            // red flash is over -> back to the map
+      } else if (this.phaseT > 100 && !this.exitCalled) {
         this.exitCalled = true;
         fadeTo(() => changeState('map'));
       }
       return;
     }
 
-    // ---- phase 'play' ----
-
     updatePlayer(L);
     for (const e of this.enemies) updateEnemy(e, L);
 
-    // coins
     for (const c of L.coins) {
       if (c.got) continue;
       if (aabb(p.x, p.y, p.w, p.h, c.col * TILE + 3, c.row * TILE + 3, 10, 10)) {
@@ -1883,7 +1545,6 @@ STATES.level = {
       }
     }
 
-    // enemies: stomp from above to defeat, touch from the side to die
     for (const e of this.enemies) {
       if (!e.alive || !aabb(p.x, p.y, p.w, p.h, e.x, e.y, e.w, e.h)) continue;
       if (p.vy > 0 && p.y + p.h < e.y + e.h * 0.6) {
@@ -1896,7 +1557,6 @@ STATES.level = {
 
     if (touchesHazard(L, p) || p.y > L.h * TILE) { this.kill(); return; }
 
-    // the exit gates: the normal one (E) and any secret ones (%) - both follow the same coin rule
     const gates = [{ g: L.exit, secret: false }].concat(L.secretExits.map(g => ({ g, secret: true })));
     for (const gate of gates) {
       const gx = gate.g.col * TILE + 2, gy = (gate.g.row + 1) * TILE - 28;
@@ -1904,17 +1564,16 @@ STATES.level = {
       this.phase = 'exit'; this.phaseT = 0;
       this.usedExit = gate.g; this.usedSecret = gate.secret;
       this.exitOK = this.total() === 0 || this.collected / this.total() >= CLEAR_PERCENT / 100 - 1e-9;
-      if (this.exitOK) Sfx.star(); else Sfx.fail();      // under 40% -> the gate flashes red
+      if (this.exitOK) Sfx.star(); else Sfx.fail();
       break;
     }
 
-    Camera.x += (this.camTarget() - Camera.x) * 0.2;      // smooth camera
+    Camera.x += (this.camTarget() - Camera.x) * 0.2;
   },
   draw() {
     const L = this.level, p = Player, camX = Math.round(Camera.x);
     drawBackground(L.theme, camX);
 
-    // --- tiles (only the ones on screen) ---
     const sheet = SHEETS[L.theme];
     const c0 = Math.max(0, Math.floor(camX / TILE)), c1 = Math.min(L.w - 1, c0 + 17);
     for (let r = 0; r < L.h; r++) for (let c = c0; c <= c1; c++) {
@@ -1924,7 +1583,7 @@ STATES.level = {
       if (ch === '#') {
         const v = L.variant[r][c];
         ctx.drawImage(sheet.ground[v.mask], px, py);
-        if (v.diag & D_TL) rect(px, py, 3, 3, C.topDark);            // inside-corner notches
+        if (v.diag & D_TL) rect(px, py, 3, 3, C.topDark);
         if (v.diag & D_TR) rect(px + 13, py, 3, 3, C.topDark);
         if (v.diag & D_BR) rect(px + 13, py + 13, 3, 3, THEMES[L.theme].edge);
         if (v.diag & D_BL) rect(px, py + 13, 3, 3, THEMES[L.theme].edge);
@@ -1934,15 +1593,12 @@ STATES.level = {
         else if (ch === 'v') ctx.drawImage(sheet.ceilingSpikes, px, py);
     }
 
-    // --- gates ---
     const s = L.start, ex = L.exit;
     drawGate(s.col * TILE - camX, (s.row + 1) * TILE, 'entry', this.phase === 'enter' ? 'open' : 'closed');
-    // only the gate the player actually walked into flashes gold (cleared) or red (not enough coins)
     const gateState = g => (this.phase === 'exit' && this.usedExit === g) ? (this.exitOK ? 'gold' : 'red') : 'closed';
     drawGate(ex.col * TILE - camX, (ex.row + 1) * TILE, 'exit', gateState(ex));
     for (const sg of L.secretExits) drawGate(sg.col * TILE - camX, (sg.row + 1) * TILE, 'secret', gateState(sg));
 
-    // --- coins, enemies, player ---
     for (const c of L.coins) if (!c.got) drawCoinSprite(c.col * TILE + 8 - camX, c.row * TILE + 8, c.col);
     for (const e of this.enemies) if (e.alive || e.deadT > 0) drawEnemySprite(e, camX);
     const hidePlayer = this.phase === 'exit' && this.exitOK && this.phaseT > 12;
@@ -1951,7 +1607,6 @@ STATES.level = {
     }
     drawParticles(this.particles, camX);
 
-    // --- HUD: coin count, percentage, progress bar with star marks ---
     ctx.globalAlpha = 0.65; rect(0, 0, SCREEN_W, 21, C.black); ctx.globalAlpha = 1;
     rect(6, 3, 6, 7, C.gold); rect(7, 4, 4, 5, C.yellow);
     drawText(this.collected + '/' + this.total(), 16, 4, C.white, 1);
@@ -1959,11 +1614,10 @@ STATES.level = {
     drawText(L.id, 250, 4, C.white, 1, 'right');
     rect(5, 13, 102, 6, C.black); rect(6, 14, 100, 4, C.dkgrey);
     rect(6, 14, Math.min(100, this.pct()), 4, this.pct() >= 100 ? C.yellow : C.green);
-    rect(6 + CLEAR_PERCENT, 12, 1, 8, C.red);                          // the 40% line
-    for (const st of STAR_STEPS) rect(6 + st, 13, 1, 6, C.white);       // star marks
+    rect(6 + CLEAR_PERCENT, 12, 1, 8, C.red);
+    for (const st of STAR_STEPS) rect(6 + st, 13, 1, 6, C.white);
     drawText('NEED ' + CLEAR_PERCENT + '%', 112, 14, C.grey, 1);
 
-    // --- messages ---
     if (this.phase === 'enter' || (this.phase === 'play' && this.phaseT < 60)) {
       drawText(L.id + ' ' + L.name, 128, 90, C.white, 2, 'center');
     }
@@ -1977,7 +1631,7 @@ STATES.level = {
     const box = (x, y, w, h, col) => { rect(x, y, w, 1, col); rect(x, y + h - 1, w, 1, col); rect(x, y, 1, h, col); rect(x + w - 1, y, 1, h, col); };
     const pc = Math.floor(p.x / TILE), pr = Math.floor(p.y / TILE);
     ctx.globalAlpha = 0.6;
-    for (let r = pr - 3; r <= pr + 3; r++) for (let c = pc - 4; c <= pc + 4; c++) {   // solid tiles near the player
+    for (let r = pr - 3; r <= pr + 3; r++) for (let c = pc - 4; c <= pc + 4; c++) {
       if (isSolid(tileAt(L, c, r)) && c >= 0 && c < L.w && r >= 0 && r < L.h) box(c * TILE - camX, r * TILE, TILE, TILE, C.cyan);
     }
     ctx.globalAlpha = 1;
@@ -1985,7 +1639,7 @@ STATES.level = {
     for (const e of this.enemies) if (e.alive) box(Math.round(e.x) - camX, Math.round(e.y), e.w, e.h, C.red);
     box(L.exit.col * TILE + 2 - camX, (L.exit.row + 1) * TILE - 28, 12, 28, C.purple);
     for (const sg of L.secretExits) box(sg.col * TILE + 2 - camX, (sg.row + 1) * TILE - 28, 12, 28, C.orange);
-    box(Math.round(p.x) - camX, Math.round(p.y), p.w, p.h, C.green);               // player hitbox
+    box(Math.round(p.x) - camX, Math.round(p.y), p.w, p.h, C.green);
     const lines = [
       'X ' + p.x.toFixed(2) + '  Y ' + p.y.toFixed(2),
       'VX ' + p.vx.toFixed(2) + '  VY ' + p.vy.toFixed(2),
@@ -1997,19 +1651,16 @@ STATES.level = {
   }
 };
 
-/* ---- POST-LEVEL TALLY ----------------------------------------------------------
-   Coins count DOWN like a timer while the percentage counts UP. Stars light
-   up silver when the percentage passes 60/80/90 - and ALL turn gold at 100%. */
 STATES.tally = {
   enter(info) {
     this.info = info;
     this.remaining = info.collected; this.shown = 0; this.acc = 0; this.t = 0;
     this.done = false; this.doneT = 0; this.lastStars = 0; this.confetti = [];
-    const hiddenBefore = countHiddenNodes();                          // to spot newly revealed secrets
+    const hiddenBefore = countHiddenNodes();
     const pct = info.total ? Math.floor(info.collected / info.total * 100) : 100;
-    Save.cleared[info.levelId] = true;                              // unlocks the next map nodes
+    Save.cleared[info.levelId] = true;
     Save.best[info.levelId] = Math.max(Save.best[info.levelId] || 0, pct);
-    if (info.secret) Save.secret[info.levelId] = true;               // remember the secret exit was found
+    if (info.secret) Save.secret[info.levelId] = true;
     Save.store();
     this.secretMsg = countHiddenNodes() < hiddenBefore ? 'A SECRET PATH APPEARED!' : '';
   },
@@ -2018,9 +1669,9 @@ STATES.tally = {
     this.t++;
     updateParticles(this.confetti);
     if (!this.done) {
-      if (Input.pressed('start') || Input.pressed('jump')) { this.shown = this.info.collected; this.remaining = 0; }   // skip
+      if (Input.pressed('start') || Input.pressed('jump')) { this.shown = this.info.collected; this.remaining = 0; }
       else if (this.t > 30) {
-        this.acc += Math.max(0.15, this.info.collected / 150);          // whole animation takes ~2.5 seconds
+        this.acc += Math.max(0.15, this.info.collected / 150);
         while (this.acc >= 1 && this.remaining > 0) { this.acc -= 1; this.remaining--; this.shown++; if (this.shown % 2 === 0) Sfx.tick(); }
       }
       const lit = [0, 1, 2].filter(i => starKind(this.pct(), i) > 0).length;
@@ -2044,14 +1695,11 @@ STATES.tally = {
     rect(14, 14, 228, 212, C.dkgrey); rect(16, 16, 224, 208, C.black);
     drawText(this.info.secret ? 'SECRET EXIT!' : 'LEVEL CLEAR!', 128, 26, this.info.secret ? C.cyan : C.yellow, 2, 'center');
     drawText(this.info.levelId + ' ' + this.info.name, 128, 46, C.white, 1, 'center');
-    // coin timer counting DOWN
     rect(78, 66, 8, 10, C.gold); rect(79, 67, 6, 8, C.yellow); rect(80, 68, 1, 3, C.white);
     drawText('COINS LEFT ' + this.remaining, 94, 68, C.white, 1);
     drawText('OF ' + this.info.total, 94, 78, C.grey, 1);
-    // percentage counting UP
     const pct = this.pct();
     drawText(pct + '%', 128, 94, pct >= 100 ? C.yellow : C.white, 5, 'center');
-    // the three stars
     for (let i = 0; i < 3; i++) {
       const bounce = (this.done && starKind(pct, i) === 2) ? Math.round(Math.sin(this.doneT / 6 + i) * 2) : 0;
       drawStar(70 + i * 46, 138 + bounce, starKind(pct, i), 3);
@@ -2063,14 +1711,6 @@ STATES.tally = {
     drawParticles(this.confetti);
   }
 };
-
-
-/* =========================================================================
-   8. MAIN LOOP
-   -------------------------------------------------------------------------
-   Logic runs in fixed 1/60 second steps (so physics is identical on every
-   computer); drawing happens once per screen refresh.
-   ========================================================================= */
 
 function update() {
   Game.tick++;
@@ -2090,11 +1730,6 @@ function draw() {
   }
 }
 
-// Resize the canvas to fit the window.
-//  - Computers: the biggest WHOLE-NUMBER scale that fits (crispest).
-//  - Touch screens: fit above (portrait) or between (landscape) the on-screen buttons.
-//    Phones have 2-3 real pixels per CSS pixel, so we pick a scale that is a whole number of
-//    REAL pixels to keep things sharp - unless that would waste too much of the screen.
 function resize() {
   const w = window.innerWidth, h = window.innerHeight, stretch = STRETCH_TO_4_3 ? 8 / 7 : 1;
   let scale;
@@ -2104,7 +1739,7 @@ function resize() {
     const portrait = h > w;
     document.body.classList.toggle('portrait', portrait);
     document.body.classList.toggle('landscape', !portrait);
-    const availH = portrait ? Math.max(200, h - 270) : h;                 // portrait: leave room for the buttons
+    const availH = portrait ? Math.max(200, h - 270) : h;
     const fit = Math.min(w / (SCREEN_W * stretch), availH / SCREEN_H);
     const dpr = window.devicePixelRatio || 1;
     const crisp = Math.floor(fit * dpr) / dpr;
@@ -2116,7 +1751,7 @@ function resize() {
 
 let lastTime = 0, accumulator = 0, fpsFrames = 0, fpsTime = 0;
 function frame(now) {
-  accumulator += Math.min(now - lastTime, 100);      // clamp so a background tab can't cause a huge catch-up
+  accumulator += Math.min(now - lastTime, 100);
   lastTime = now;
   while (accumulator >= STEP_MS) { update(); Input.endFrame(); accumulator -= STEP_MS; }
   draw();
@@ -2130,10 +1765,10 @@ function init() {
   ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
   Input.init();
-  Touch.init();                                      // on-screen buttons (only on touch screens)
+  Touch.init();
   buildSheets();
   Save.load();
-  applyControls(Save.controls);                      // arrows or WASD, whichever was saved
+  applyControls(Save.controls);
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', resize);
   resize();
